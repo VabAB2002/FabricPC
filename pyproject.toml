@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "fabricpc"
-version = "0.5.2"
+version = "0.6.0"
 description = "A flexible, performant predictive coding library using JAX"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -162,3 +162,8 @@ extend-exclude = [".git", ".venv", "build", "dist"]
 # flag every `= GaussianEnergy()` / `= KaimingInitializer()` signature default,
 # which is exactly the pattern being standardized on.
 extend-select = ["B006"]
+
+[tool.pytest.ini_options]
+markers = [
+    "slow: long-running convergence tests (deselect with -m 'not slow')",
+]
