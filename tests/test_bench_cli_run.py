@@ -1,0 +1,132 @@
+"""Tests for running a row from the command line (in-process, tiny data)."""
+
+import dataclasses
+import json
+
+
+from fabricpc.bench import registry
+from fabricpc.bench.__main__ import main
+from tests.test_bench_runner import fake_mnist_loaders
+
+
+def register_tiny_row(monkeypatch, rng_key):
+    """A copy of mnist-mlp-spc that loads a tiny random dataset."""
+    base = registry.ROWS["mnist-mlp-spc"]
+    loaders = fake_mnist_loaders(rng_key)
+    tiny = dataclasses.replace(
+        base, id="tiny-mlp-spc", dataset="tiny", loader_factory=lambda seed: loaders
+    )
+    monkeypatch.setitem(registry.ROWS, "tiny-mlp-spc", tiny)
+    return tiny
+
+
+def test_running_a_row_writes_one_file_per_trial(tmp_path, monkeypatch, rng_key):
+    register_tiny_row(monkeypatch, rng_key)
+
+    code = main(
+        [
+            "tiny-mlp-spc",
+            "--out",
+            str(tmp_path),
+            "--trials",
+            "2",
+            "--epochs",
+            "1",
+            "--warmup",
+            "1",
+            "--timed",
+            "2",
+        ]
+    )
+
+    assert code == 0
+    files = sorted(p.name for p in (tmp_path / "tiny-mlp-spc").glob("trial*.json"))
+    assert files == ["trial0.json", "trial1.json"]
+    first = json.loads((tmp_path / "tiny-mlp-spc" / "trial0.json").read_text())
+    assert first["status"] == "ok"
+    assert first["seed"] == 0
+
+    # A run also leaves a manifest next to the trials.
+    manifest = json.loads((tmp_path / "tiny-mlp-spc" / "manifest.json").read_text())
+    assert manifest["seeds"] == [0, 1000]
+    assert manifest["row"]["id"] == "tiny-mlp-spc"
+    assert "tiny-mlp-spc" in manifest["command"]
+
+
+def test_a_failed_trial_makes_the_command_exit_nonzero(tmp_path, monkeypatch, rng_key):
+    tiny = register_tiny_row(monkeypatch, rng_key)
+
+    def broken_loaders(seed):
+        raise RuntimeError("dataset is missing")
+
+    broken = dataclasses.replace(
+        tiny, id="broken-mlp-spc", loader_factory=broken_loaders
+    )
+    monkeypatch.setitem(registry.ROWS, "broken-mlp-spc", broken)
+
+    code = main(["broken-mlp-spc", "--out", str(tmp_path), "--trials", "1"])
+
+    assert code != 0
+    on_disk = json.loads((tmp_path / "broken-mlp-spc" / "trial0.json").read_text())
+    assert on_disk["status"] == "failed"
+    assert "dataset is missing" in on_disk["error"]
+
+
+def test_running_two_or_more_trials_also_writes_a_summary(
+    tmp_path, monkeypatch, rng_key
+):
+    register_tiny_row(monkeypatch, rng_key)
+    code = main(
+        ["tiny-mlp-spc", "--out", str(tmp_path), "--trials", "2", "--epochs", "1"]
+    )
+    assert code == 0
+    summary = json.loads((tmp_path / "tiny-mlp-spc" / "summary.json").read_text())
+    assert summary["n_ok"] == 2
+    assert "accuracy" in summary["metrics"]
+
+
+def test_compare_command_pairs_two_rows(tmp_path, monkeypatch, rng_key):
+    tiny = register_tiny_row(monkeypatch, rng_key)
+    tiny_bp = dataclasses.replace(
+        tiny,
+        id="tiny-mlp-backprop",
+        algorithm="backprop",
+        model_factory=registry.ROWS["mnist-mlp-backprop"].model_factory,
+    )
+    monkeypatch.setitem(registry.ROWS, "tiny-mlp-backprop", tiny_bp)
+    common = ["--out", str(tmp_path), "--trials", "2", "--epochs", "1"]
+    assert main(["tiny-mlp-spc", *common]) == 0
+    assert main(["tiny-mlp-backprop", *common]) == 0
+
+    code = main(
+        ["compare", "tiny-mlp-spc", "tiny-mlp-backprop", "--out", str(tmp_path)]
+    )
+
+    assert code == 0
+    c = json.loads(
+        (tmp_path / "compare-tiny-mlp-spc-vs-tiny-mlp-backprop.json").read_text()
+    )
+    assert c["metric"] == "accuracy"
+    assert c["n"] == 2
+
+
+def test_smoke_runs_a_short_row_and_checks_an_accuracy_floor(
+    tmp_path, monkeypatch, rng_key
+):
+    register_tiny_row(monkeypatch, rng_key)
+    # Floor 0.0 so random data passes; the real smoke uses a real floor.
+    code = main(
+        ["smoke", "--row", "tiny-mlp-spc", "--floor", "0.0", "--out", str(tmp_path)]
+    )
+    assert code == 0
+    summary = json.loads((tmp_path / "tiny-mlp-spc" / "summary.json").read_text())
+    assert summary["n_ok"] >= 2
+
+
+def test_smoke_fails_when_accuracy_is_below_the_floor(tmp_path, monkeypatch, rng_key):
+    register_tiny_row(monkeypatch, rng_key)
+    # Random labels cannot reach 99%, so this must fail.
+    code = main(
+        ["smoke", "--row", "tiny-mlp-spc", "--floor", "0.99", "--out", str(tmp_path)]
+    )
+    assert code != 0

@@ -56,3 +56,26 @@ jobs:
         env:
           XLA_FLAGS: --xla_force_host_platform_device_count=2
         run: pytest tests/test_sharding.py -q
+
+  bench-smoke:
+    # A short real training run on MNIST. The unit tests above prove the
+    # code runs; this proves a model still learns after a change. It needs
+    # [tfds] for the dataset, which is why it is its own job.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install
+        run: |
+          python -m pip install -U pip
+          pip install -e ".[dev,experiments,tfds]"
+      - name: Benchmark smoke run
+        run: python -m fabricpc.bench smoke --out smoke-results
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bench-smoke-results
+          path: smoke-results

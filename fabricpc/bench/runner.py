@@ -1,0 +1,168 @@
+"""Run one trial of one benchmark row and save the result as JSON."""
+
+import json
+import time
+import traceback
+from dataclasses import asdict, dataclass, field
+from pathlib import Path
+from typing import Dict, Optional
+
+import jax
+
+from fabricpc.bench.compute import count_compute
+from fabricpc.bench.measure import memory_bytes_in_use, time_steps
+from fabricpc.bench.registry import BenchmarkRow
+from fabricpc.bench.zoo import save_params
+from fabricpc.training import evaluate, train
+
+# The trainer knows two algorithms. Both PC solvers use "pc"; the solver
+# itself lives inside the graph the row's model factory built.
+_TRAINER_ALGORITHM = {"spc": "pc", "epc": "pc", "backprop": "backprop"}
+
+
+def seed_for_trial(trial: int, seed_offset: int = 0) -> int:
+    """Same rule as PlannedMultiContrastExperiment, so arms line up."""
+    return seed_offset + trial * 1000
+
+
+@dataclass(frozen=True)
+class TrialResult:
+    row_id: str
+    trial: int
+    seed: int
+    algorithm: str
+    n_params: int
+    metrics: Dict[str, float] = field(default_factory=dict)
+    compile_time_s: float = 0.0
+    step_time_ms: float = 0.0
+    train_time_s: float = 0.0
+    memory_bytes: Optional[int] = None
+    num_epochs: float = 0.0
+    compute: Dict[str, float] = field(default_factory=dict)
+    achieved_tflops: float = 0.0  # flops per update / measured step time
+    checkpoint: Optional[str] = None  # zoo path of the trained params
+    status: str = "ok"
+    error: Optional[str] = None
+
+
+def run_trial(
+    row: BenchmarkRow,
+    trial: int,
+    out_dir,
+    *,
+    loaders=None,
+    num_epochs: Optional[float] = None,
+    warmup_steps: int = 5,
+    timed_steps: int = 30,
+    seed_offset: int = 0,
+    zoo_dir=None,
+) -> TrialResult:
+    """Train the row's model once, measure it, and write ``trial<i>.json``.
+
+    ``loaders`` lets a test pass a small fake dataset. ``num_epochs`` lets a
+    caller shorten a run. Both default to what the row says. ``zoo_dir``
+    saves the trained params there; None skips saving.
+    """
+    seed = seed_for_trial(trial, seed_offset)
+    out_path = Path(out_dir) / row.id / f"trial{trial}.json"
+    algorithm = _TRAINER_ALGORITHM[row.algorithm]
+    epochs = float(
+        num_epochs if num_epochs is not None else row.train_config["num_epochs"]
+    )
+
+    try:
+        master_key = jax.random.PRNGKey(seed)
+        graph_key, timing_key, train_key, eval_key = jax.random.split(master_key, 4)
+
+        params, structure = row.model_factory(graph_key)
+        n_params = int(sum(p.size for p in jax.tree_util.tree_leaves(params)))
+
+        train_loader, test_loader = loaders or row.loader_factory(seed)
+        optimizer = row.optimizer_factory()
+
+        timing = time_steps(
+            params,
+            structure,
+            optimizer,
+            train_loader,
+            timing_key,
+            algorithm=algorithm,
+            warmup_steps=warmup_steps,
+            timed_steps=timed_steps,
+        )
+        memory = memory_bytes_in_use()
+
+        compute = count_compute(
+            params, structure, batch_size=row.batch_size, algorithm=row.algorithm
+        )
+        # tflops = flops per update / seconds per update / 1e12
+        achieved_tflops = (
+            compute.flops_per_update / (timing.step_time_ms / 1000.0) / 1e12
+        )
+
+        config = {**row.train_config, "num_epochs": epochs}
+        t0 = time.perf_counter()
+        trained = train(
+            params,
+            structure,
+            train_loader,
+            optimizer,
+            config,
+            train_key,
+            algorithm=algorithm,
+            verbose=False,
+        )
+        train_time_s = time.perf_counter() - t0
+
+        raw = evaluate(
+            trained.params,
+            structure,
+            test_loader,
+            config,
+            eval_key,
+            algorithm=algorithm,
+        )
+        metrics = {k: float(v) for k, v in raw.items()}
+
+        checkpoint = None
+        if zoo_dir is not None:
+            path = save_params(
+                zoo_dir,
+                row,
+                trial,
+                trained.params,
+                meta={"seed": seed, "num_epochs": epochs, "metrics": metrics},
+            )
+            checkpoint = str(path)
+
+        result = TrialResult(
+            row_id=row.id,
+            trial=trial,
+            seed=seed,
+            algorithm=row.algorithm,
+            n_params=n_params,
+            metrics=metrics,
+            compile_time_s=timing.compile_time_s,
+            step_time_ms=timing.step_time_ms,
+            train_time_s=train_time_s,
+            memory_bytes=memory,
+            num_epochs=epochs,
+            compute=asdict(compute),
+            achieved_tflops=achieved_tflops,
+            checkpoint=checkpoint,
+        )
+    except Exception:  # noqa: BLE001 - a failed trial must still be recorded
+        result = TrialResult(
+            row_id=row.id,
+            trial=trial,
+            seed=seed,
+            algorithm=row.algorithm,
+            n_params=0,
+            num_epochs=epochs,
+            status="failed",
+            error=traceback.format_exc(),
+        )
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(json.dumps(asdict(result), indent=2))
+    return result
