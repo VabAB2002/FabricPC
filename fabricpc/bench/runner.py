@@ -20,6 +20,10 @@ from fabricpc.training import evaluate, train
 # itself lives inside the graph the row's model factory built.
 _TRAINER_ALGORITHM = {"spc": "pc", "epc": "pc", "backprop": "backprop"}
 
+# Any fixed number works; it just keeps the timing key apart from the three
+# keys the experiment framework uses.
+_TIMING_STREAM = 7
+
 
 def seed_for_trial(trial: int, seed_offset: int = 0) -> int:
     """Same rule as PlannedMultiContrastExperiment, so arms line up."""
@@ -74,26 +78,32 @@ def run_trial(
     )
 
     try:
+        # Split the seed exactly as PlannedMultiContrastExperiment does, so a
+        # trial here trains the same model the experiment framework would.
+        # The timing key is drawn off to the side and never touches training.
         master_key = jax.random.PRNGKey(seed)
-        graph_key, timing_key, train_key, eval_key = jax.random.split(master_key, 4)
+        graph_key, train_key, eval_key = jax.random.split(master_key, 3)
+        timing_key = jax.random.fold_in(master_key, _TIMING_STREAM)
 
         params, structure = row.model_factory(graph_key)
         n_params = int(sum(p.size for p in jax.tree_util.tree_leaves(params)))
-
-        train_loader, test_loader = loaders or row.loader_factory(seed)
         optimizer = row.optimizer_factory()
 
+        # Timing reads a few batches, so training gets fresh loaders after it
+        # (the framework also builds fresh loaders for every arm).
+        timing_loader, _ = loaders or row.loader_factory(seed)
         timing = time_steps(
             params,
             structure,
             optimizer,
-            train_loader,
+            timing_loader,
             timing_key,
             algorithm=algorithm,
             warmup_steps=warmup_steps,
             timed_steps=timed_steps,
         )
         memory = memory_snapshot().bytes_in_use
+        train_loader, test_loader = loaders or row.loader_factory(seed)
 
         compute = count_compute(
             params, structure, batch_size=row.batch_size, algorithm=row.algorithm

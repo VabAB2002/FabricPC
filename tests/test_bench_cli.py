@@ -37,3 +37,10 @@ def test_unknown_row_fails_with_a_helpful_message():
     assert code != 0
     assert "no-such-row" in err
     assert "list" in err  # points the user at the list command
+
+
+def test_list_also_names_the_families_that_run_as_one_comparison():
+    code, out, _ = run_cli("list")
+    assert code == 0
+    assert "mnist-mlp " in out or "mnist-mlp\n" in out
+    assert "spc vs backprop" in out

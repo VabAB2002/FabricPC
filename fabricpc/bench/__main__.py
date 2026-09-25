@@ -4,7 +4,9 @@
     python -m fabricpc.bench <row-id> [--trials N] [--epochs E] [--out DIR]
                                       [--resume] [--zoo DIR]
     python -m fabricpc.bench <row-id> --dry-run
+    python -m fabricpc.bench <family>             (all three rows, then compare)
     python -m fabricpc.bench compare <row-a> <row-b> [--metric accuracy]
+    python -m fabricpc.bench compare <family>     (e.g. mnist-mlp)
     python -m fabricpc.bench smoke [--floor 0.85]
     python -m fabricpc.bench validate [DIR]
 
@@ -33,12 +35,14 @@ debugging; ``--trial i`` runs a single trial and is what each child does.
 import argparse
 import json
 import sys
+from dataclasses import asdict
 from pathlib import Path
 
 from fabricpc.bench.band import attach_band
 from fabricpc.bench.isolate import run_trial_in_child
 from fabricpc.bench.manifest import describe_row, write_manifest
-from fabricpc.bench.registry import ROWS
+from fabricpc.bench.compare import compare_family
+from fabricpc.bench.registry import COMPARISONS, ROWS
 from fabricpc.bench.runner import finished_trial, run_trial, seed_for_trial
 from fabricpc.bench.summary import MIN_TRIALS, compare_rows, summarize_row
 from fabricpc.bench.writer import validate, write_trials_csv
@@ -175,24 +179,44 @@ def _run_row(
 def cmd_list() -> int:
     for row_id in ROWS:
         print(row_id)
+    print("\nFamilies (run all three rows, then spc vs backprop, epc vs backprop,")
+    print("epc vs spc):")
+    for family_id in COMPARISONS:
+        print(family_id)
+    return 0
+
+
+def _print_contrast(a, b, metric, c) -> None:
+    sig = "yes" if c["significant_at_05"] else "no"
+    print(
+        f"{a} - {b} on {metric}: {c['mean_diff']:+.4f} "
+        f"(se {c['se_diff']:.4f}, p={c['p_value']:.3g}, d={c['cohens_d']:.2f}, "
+        f"n={c['n']}, significant at 5%: {sig})"
+    )
+
+
+def _compare_family(family_id, out, metric) -> int:
+    result = compare_family(out, COMPARISONS[family_id], metric=metric)
+    for c in result["contrasts"]:
+        _print_contrast(c["arm_a"], c["arm_b"], metric, c)
     return 0
 
 
 def cmd_compare(args) -> int:
+    if len(args.rows) == 1 and args.rows[0] in COMPARISONS:
+        return _compare_family(args.rows[0], args.out, args.metric)
     if len(args.rows) != 2:
-        print("usage: compare <row-a> <row-b> [--metric NAME]", file=sys.stderr)
+        print(
+            "usage: compare <row-a> <row-b> | compare <family> [--metric NAME]",
+            file=sys.stderr,
+        )
         return 2
     row_a, row_b = args.rows
     for row_id in (row_a, row_b):
         if row_id not in ROWS:
             return _unknown_row(row_id)
     c = compare_rows(args.out, row_a, row_b, metric=args.metric)
-    sig = "yes" if c.significant_at_05 else "no"
-    print(
-        f"{row_a} - {row_b} on {args.metric}: {c.mean_diff:+.4f} "
-        f"(se {c.se_diff:.4f}, p={c.p_value:.3g}, d={c.cohens_d:.2f}, "
-        f"n={c.n}, significant at 5%: {sig})"
-    )
+    _print_contrast(row_a, row_b, args.metric, asdict(c))
     return 0
 
 
@@ -251,7 +275,21 @@ def cmd_one_trial(row, args) -> int:
     return 0 if result.status == "ok" else 1
 
 
+def cmd_family(args, command) -> int:
+    """Run every row of a family, then compare them."""
+    family = COMPARISONS[args.target]
+    codes = [_run_one_row(ROWS[row_id], args, command) for row_id in family.rows]
+    try:
+        _compare_family(family.id, args.out, args.metric)
+    except ValueError as e:  # too few good trials to pair
+        print(f"{family.id}: no comparison: {e}", file=sys.stderr)
+        return 1
+    return max(codes)
+
+
 def cmd_run(args, command) -> int:
+    if args.target in COMPARISONS and args.target not in ROWS:
+        return cmd_family(args, command)
     row = ROWS.get(args.target)
     if row is None:
         return _unknown_row(args.target)
@@ -260,6 +298,10 @@ def cmd_run(args, command) -> int:
         return 0
     if args.trial is not None:
         return cmd_one_trial(row, args)
+    return _run_one_row(row, args, command)
+
+
+def _run_one_row(row, args, command) -> int:
     n_trials = args.trials if args.trials is not None else row.n_trials
     failed, summary = _run_row(
         row,

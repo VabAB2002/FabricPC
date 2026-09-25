@@ -379,3 +379,32 @@ ROWS.update(_mlp_family("fashionmnist"))
 ROWS.update(_cifar10_vgg5_family())
 ROWS.update(_cifar10_resnet18_family())
 ROWS.update(_tinyshakespeare_transformer_family())
+
+
+@dataclass(frozen=True)
+class Comparison:
+    """The three algorithms on one model family, and the pairs we test.
+
+    Rows of a family share a dataset, a model, and the seeds, so their
+    trials pair up one to one. Each contrast is ``(a, b)``, read as a - b.
+    """
+
+    id: str
+    rows: Tuple[str, ...]
+    contrasts: Tuple[Tuple[str, str], ...]
+
+
+def _family_comparison(family: str) -> Comparison:
+    spc, epc, bp = (f"{family}-{algo}" for algo in ALGORITHMS)
+    return Comparison(
+        id=family,
+        rows=(spc, epc, bp),
+        # Does PC keep up with backprop, and is ePC better than sPC?
+        contrasts=((spc, bp), (epc, bp), (epc, spc)),
+    )
+
+
+COMPARISONS: Dict[str, Comparison] = {
+    family: _family_comparison(family)
+    for family in dict.fromkeys(row_id.rsplit("-", 1)[0] for row_id in ROWS)
+}

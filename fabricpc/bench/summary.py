@@ -6,7 +6,8 @@ refuses to produce one from fewer than two trials.
 
 Comparing two rows is a paired test: trial i of row A and trial i of row B
 used the same seed and the same data order, so the per-trial differences
-are what gets tested. The math comes from ``fabricpc.experiments``.
+are what gets tested. The math comes from ``fabricpc.experiments``, through
+``fabricpc.bench.compare``.
 """
 
 import json
@@ -18,7 +19,6 @@ from typing import Dict, List, Optional
 import numpy as np
 
 from fabricpc.bench.manifest import SCHEMA_VERSION
-from fabricpc.experiments.statistics import cohens_d, paired_ttest
 
 MIN_TRIALS = 2
 
@@ -114,36 +114,28 @@ class Contrast:
 
 
 def compare_rows(results_dir, row_a: str, row_b: str, *, metric: str) -> Contrast:
-    """Paired comparison of one metric between two rows, trial by trial."""
-    a = [t for t in load_trials(results_dir, row_a) if t.get("status") == "ok"]
-    b = [t for t in load_trials(results_dir, row_b) if t.get("status") == "ok"]
-    seeds_a = [t["seed"] for t in a]
-    seeds_b = [t["seed"] for t in b]
-    if seeds_a != seeds_b:
-        raise ValueError(
-            f"cannot pair {row_a} and {row_b}: seed lists differ "
-            f"({seeds_a} vs {seeds_b})"
-        )
-    if len(a) < MIN_TRIALS:
-        raise ValueError(f"need at least {MIN_TRIALS} paired trials, found {len(a)}")
+    """Paired comparison of one metric between two rows, trial by trial.
 
-    va = np.array([t["metrics"][metric] for t in a], dtype=float)
-    vb = np.array([t["metrics"][metric] for t in b], dtype=float)
-    diff = va - vb
-    test = paired_ttest(va, vb)
-    effect = cohens_d(va, vb)
+    The statistics come from fabricpc.experiments' planned-contrast results
+    (see ``fabricpc.bench.compare``), the same code every comparison uses.
+    """
+    from fabricpc.bench.compare import planned_results
 
+    res = planned_results(
+        results_dir, rows=(row_a, row_b), contrasts=((row_a, row_b),), metric=metric
+    )
+    (c,) = res.contrast_results()
     contrast = Contrast(
         row_a=row_a,
         row_b=row_b,
         metric=metric,
-        n=len(diff),
-        mean_diff=float(np.mean(diff)),
-        se_diff=float(np.std(diff, ddof=1) / math.sqrt(len(diff))),
-        t_statistic=float(test.t_statistic),
-        p_value=float(test.p_value),
-        significant_at_05=bool(test.significant_at_05),
-        cohens_d=float(effect.d),
+        n=int(c.n),
+        mean_diff=float(c.mean_diff),
+        se_diff=float(c.se_diff),
+        t_statistic=float(c.t_statistic),
+        p_value=float(c.p_value),
+        significant_at_05=bool(c.significant_at_05),
+        cohens_d=float(c.cohens_d),
     )
     path = Path(results_dir) / f"compare-{row_a}-vs-{row_b}.json"
     path.write_text(json.dumps(asdict(contrast), indent=2))

@@ -9,6 +9,7 @@ Two rules keep the numbers honest:
   nothing.
 """
 
+import itertools
 import statistics
 import time
 from dataclasses import dataclass
@@ -41,12 +42,13 @@ def time_steps(
     """Time one training step, the way a benchmark should.
 
     Runs one compile step, then ``warmup_steps`` untimed steps, then
-    ``timed_steps`` timed steps. Batches are taken from ``loader`` and
-    reused in a cycle if the loader is shorter than the step count.
+    ``timed_steps`` timed steps. Only that many batches are read from
+    ``loader``, and they are reused in a cycle if the loader is shorter.
     """
     step = make_train_step(structure, optimizer, algorithm=algorithm)
     opt_state = optimizer.init(params)
-    batches = [convert_batch(b) for b in loader]
+    needed = 1 + warmup_steps + timed_steps
+    batches = [convert_batch(b) for b in itertools.islice(loader, needed)]
     if not batches:
         raise ValueError("loader yielded no batches")
 

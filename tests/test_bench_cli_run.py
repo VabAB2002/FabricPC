@@ -387,3 +387,50 @@ def test_clearing_leaves_other_rows_alone(tmp_path, monkeypatch, rng_key):
     assert main(_tiny_args(tmp_path)) == 0
 
     assert (other / "trial0.json").exists()
+
+
+def test_compare_command_on_a_family_reports_three_contrasts(tmp_path, capsys):
+    from tests.test_bench_summary import write_trials
+
+    write_trials(tmp_path, "mnist-mlp-spc", [0.90, 0.92, 0.94])
+    write_trials(tmp_path, "mnist-mlp-epc", [0.92, 0.93, 0.94], algorithm="epc")
+    write_trials(
+        tmp_path, "mnist-mlp-backprop", [0.91, 0.91, 0.91], algorithm="backprop"
+    )
+
+    assert main(["compare", "mnist-mlp", "--out", str(tmp_path)]) == 0
+
+    printed = capsys.readouterr().out
+    assert "mnist-mlp-spc - mnist-mlp-backprop" in printed
+    assert "mnist-mlp-epc - mnist-mlp-spc" in printed
+    assert (tmp_path / "compare-mnist-mlp.json").exists()
+
+
+def test_running_a_family_runs_all_three_rows_then_compares(
+    tmp_path, monkeypatch, rng_key
+):
+    tiny = register_tiny_row(monkeypatch, rng_key)
+    for algo in ("epc", "backprop"):
+        base = registry.ROWS[f"mnist-mlp-{algo}"]
+        monkeypatch.setitem(
+            registry.ROWS,
+            f"tiny-mlp-{algo}",
+            dataclasses.replace(
+                base,
+                id=f"tiny-mlp-{algo}",
+                dataset="tiny",
+                loader_factory=tiny.loader_factory,
+            ),
+        )
+    monkeypatch.setitem(
+        registry.COMPARISONS, "tiny-mlp", registry._family_comparison("tiny-mlp")
+    )
+    args = _tiny_args(tmp_path)
+    args[0] = "tiny-mlp"
+
+    assert main(args) == 0
+
+    for algo in ("spc", "epc", "backprop"):
+        assert (tmp_path / f"tiny-mlp-{algo}" / "summary.json").exists()
+    out = json.loads((tmp_path / "compare-tiny-mlp.json").read_text())
+    assert len(out["contrasts"]) == 3
