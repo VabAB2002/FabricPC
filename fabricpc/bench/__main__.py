@@ -6,9 +6,12 @@
     python -m fabricpc.bench <row-id> --dry-run
     python -m fabricpc.bench compare <row-a> <row-b> [--metric accuracy]
     python -m fabricpc.bench smoke [--floor 0.85]
+    python -m fabricpc.bench validate [DIR]
 
-Running a row writes one JSON file per trial, a manifest, and (with two or
-more good trials) a summary with the mean and standard error. ``smoke`` is
+Running a row writes one JSON file per trial, a manifest, ``trials.csv``
+(every trial on one line), and (with two or more good trials) a summary
+with the mean and standard error. ``validate`` checks that a results
+folder is complete and consistent. ``smoke`` is
 the short run CI uses: a small row, two seeds, half an epoch, and a check
 that accuracy is still above a floor.
 
@@ -35,6 +38,7 @@ from fabricpc.bench.manifest import describe_row, write_manifest
 from fabricpc.bench.registry import ROWS
 from fabricpc.bench.runner import finished_trial, run_trial, seed_for_trial
 from fabricpc.bench.summary import MIN_TRIALS, compare_rows, summarize_row
+from fabricpc.bench.writer import validate, write_trials_csv
 
 SMOKE_ROW = "mnist-mlp-spc"
 SMOKE_FLOOR = 0.85  # half an epoch of MNIST lands well above this
@@ -43,9 +47,14 @@ SMOKE_FLOOR = 0.85  # half an epoch of MNIST lands well above this
 def _parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="python -m fabricpc.bench")
     p.add_argument(
-        "target", help="'list', 'compare', 'smoke', or a row id like mnist-mlp-spc"
+        "target",
+        help="'list', 'compare', 'smoke', 'validate', or a row id like mnist-mlp-spc",
     )
-    p.add_argument("rows", nargs="*", help="for 'compare': the two row ids")
+    p.add_argument(
+        "rows",
+        nargs="*",
+        help="for 'compare': the two row ids; for 'validate': the results folder",
+    )
     p.add_argument("--dry-run", action="store_true", help="show the row, do not train")
     p.add_argument("--out", default="results", help="where result files go")
     p.add_argument("--trials", type=int, help="how many seeds to run")
@@ -124,6 +133,7 @@ def _run_row(
             failed += 1
             print(f"{row.id} trial {trial}: FAILED (see {out})", file=sys.stderr)
 
+    write_trials_csv(out, row.id)
     summary = None
     if n_trials - failed >= MIN_TRIALS:
         summary = attach_band(out, row, summarize_row(out, row.id))
@@ -163,6 +173,18 @@ def cmd_compare(args) -> int:
         f"(se {c.se_diff:.4f}, p={c.p_value:.3g}, d={c.cohens_d:.2f}, "
         f"n={c.n}, significant at 5%: {sig})"
     )
+    return 0
+
+
+def cmd_validate(args) -> int:
+    folder = args.rows[0] if args.rows else args.out
+    problems = validate(folder)
+    for problem in problems:
+        print(problem, file=sys.stderr)
+    if problems:
+        print(f"validate: {len(problems)} problem(s) in {folder}", file=sys.stderr)
+        return 1
+    print(f"validate: {folder} is complete and consistent")
     return 0
 
 
@@ -244,6 +266,8 @@ def main(argv=None) -> int:
         return cmd_compare(args)
     if args.target == "smoke":
         return cmd_smoke(args, command)
+    if args.target == "validate":
+        return cmd_validate(args)
     return cmd_run(args, command)
 
 

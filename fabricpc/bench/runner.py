@@ -10,6 +10,7 @@ from typing import Dict, Optional
 import jax
 
 from fabricpc.bench.compute import count_compute
+from fabricpc.bench.manifest import SCHEMA_VERSION
 from fabricpc.bench.measure import memory_snapshot, time_steps
 from fabricpc.bench.registry import BenchmarkRow
 from fabricpc.bench.zoo import save_params
@@ -44,6 +45,7 @@ class TrialResult:
     checkpoint: Optional[str] = None  # zoo path of the trained params
     status: str = "ok"
     error: Optional[str] = None
+    schema_version: int = SCHEMA_VERSION
 
 
 def run_trial(

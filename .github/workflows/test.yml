@@ -74,6 +74,8 @@ jobs:
           pip install -e ".[dev,experiments,tfds]"
       - name: Benchmark smoke run
         run: python -m fabricpc.bench smoke --out smoke-results
+      - name: Check the result files are complete
+        run: python -m fabricpc.bench validate smoke-results
       - uses: actions/upload-artifact@v4
         if: always()
         with:

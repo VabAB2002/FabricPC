@@ -309,3 +309,19 @@ def test_by_default_each_trial_runs_in_its_own_process(tmp_path, monkeypatch, rn
 
     assert code == 0
     assert in_child == [0, 1]
+
+
+def test_a_run_writes_trials_csv_and_validates(tmp_path, monkeypatch, rng_key):
+    register_tiny_row(monkeypatch, rng_key)
+    assert main(_tiny_args(tmp_path)) == 0
+
+    assert (tmp_path / "tiny-mlp-spc" / "trials.csv").exists()
+    assert main(["validate", str(tmp_path)]) == 0
+
+
+def test_validate_command_fails_on_a_broken_folder(tmp_path, monkeypatch, rng_key):
+    register_tiny_row(monkeypatch, rng_key)
+    assert main(_tiny_args(tmp_path)) == 0
+    (tmp_path / "tiny-mlp-spc" / "manifest.json").unlink()
+
+    assert main(["validate", str(tmp_path)]) != 0

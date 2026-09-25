@@ -17,6 +17,7 @@ from typing import Dict, List, Optional
 
 import numpy as np
 
+from fabricpc.bench.manifest import SCHEMA_VERSION
 from fabricpc.experiments.statistics import cohens_d, paired_ttest
 
 MIN_TRIALS = 2
@@ -56,6 +57,7 @@ class RowSummary:
     n_params: int = 0
     num_epochs: float = 0.0
     band: Optional[Dict[str, object]] = None  # filled in by fabricpc.bench.band
+    schema_version: int = SCHEMA_VERSION
 
 
 def summarize_row(results_dir, row_id: str) -> RowSummary:
