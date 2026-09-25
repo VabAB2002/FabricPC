@@ -60,7 +60,9 @@ class BenchmarkRow:
     algorithm: str
     model_factory: ModelFactory
     loader_factory: LoaderFactory
-    optimizer_factory: Callable[[], optax.GradientTransformation]
+    # Built once per trial from the run's total training steps, which a
+    # learning-rate schedule needs; rows with a constant rate ignore it.
+    optimizer_factory: Callable[[int], optax.GradientTransformation]
     train_config: Mapping[str, object]
     batch_size: int
     n_trials: int = 5
@@ -170,7 +172,7 @@ def _mlp_family(dataset: str) -> Dict[str, BenchmarkRow]:
             algorithm=algo,
             model_factory=_mnist_mlp_factory(algo),
             loader_factory=_flat_image_loaders(dataset, batch_size),
-            optimizer_factory=lambda: optax.adamw(0.001, weight_decay=0.1),
+            optimizer_factory=lambda total_steps: optax.adamw(0.001, weight_decay=0.1),
             train_config={"num_epochs": 20},
             batch_size=batch_size,
             reference=Reference(
@@ -210,16 +212,42 @@ def _cifar10_vgg5_factory(algorithm: str) -> ModelFactory:
 
 
 def _cifar10_loaders(batch_size: int) -> LoaderFactory:
-    """CIFAR-10 loaders for one trial. No augmentation yet; see the design doc."""
+    """CIFAR-10 loaders for one trial: training images get random flips and
+    4-pixel random crops, as in pcx; test images are left alone."""
 
     def build(seed: int):
-        from fabricpc.utils.data.dataloader import Cifar10Loader
+        from fabricpc.utils.data import dataloader
 
-        train = Cifar10Loader("train", batch_size=batch_size, shuffle=True, seed=seed)
-        test = Cifar10Loader("test", batch_size=batch_size, shuffle=False)
+        train = dataloader.AugmentedImageLoader(
+            dataloader.Cifar10Loader(
+                "train", batch_size=batch_size, shuffle=True, seed=seed
+            ),
+            flip_prob=0.5,
+            crop_pad=4,
+            seed=seed,
+        )
+        test = dataloader.Cifar10Loader("test", batch_size=batch_size, shuffle=False)
         return train, test
 
     return build
+
+
+# VGG-5 weights: AdamW with pcx's rounded rate and decay, warmed up linearly
+# over the first tenth of training and then cosine-decayed to zero. These
+# are starting values, not tuned ones.
+_VGG_PEAK_LR = 2.6e-4
+_VGG_WEIGHT_DECAY = 1.2e-5
+_VGG_WARMUP_FRACTION = 0.1
+
+
+def _vgg_lr_schedule(total_steps: int) -> optax.Schedule:
+    return optax.warmup_cosine_decay_schedule(
+        init_value=0.0,
+        peak_value=_VGG_PEAK_LR,
+        warmup_steps=max(1, int(total_steps * _VGG_WARMUP_FRACTION)),
+        decay_steps=max(2, total_steps),
+        end_value=0.0,
+    )
 
 
 def _cifar10_vgg5_family() -> Dict[str, BenchmarkRow]:
@@ -236,7 +264,9 @@ def _cifar10_vgg5_family() -> Dict[str, BenchmarkRow]:
             algorithm=algo,
             model_factory=_cifar10_vgg5_factory(algo),
             loader_factory=_cifar10_loaders(batch_size),
-            optimizer_factory=lambda: optax.adamw(2.6e-4, weight_decay=1.2e-5),
+            optimizer_factory=lambda total_steps: optax.adamw(
+                _vgg_lr_schedule(total_steps), weight_decay=_VGG_WEIGHT_DECAY
+            ),
             train_config={"num_epochs": 50},
             batch_size=batch_size,
         )
@@ -286,7 +316,7 @@ def _cifar10_resnet18_family() -> Dict[str, BenchmarkRow]:
             algorithm=algo,
             model_factory=_cifar10_resnet18_factory(algo),
             loader_factory=_cifar10_loaders(batch_size),
-            optimizer_factory=lambda: optax.adamw(1e-3, weight_decay=0.01),
+            optimizer_factory=lambda total_steps: optax.adamw(1e-3, weight_decay=0.01),
             train_config={"num_epochs": 100},
             batch_size=batch_size,
         )
@@ -366,7 +396,7 @@ def _tinyshakespeare_transformer_family() -> Dict[str, BenchmarkRow]:
             algorithm=algo,
             model_factory=_char_transformer_factory(algo),
             loader_factory=_tinyshakespeare_loaders(c["batch_size"], c["seq_len"]),
-            optimizer_factory=lambda: optax.adam(_CHAR_TRANSFORMER["lr"]),
+            optimizer_factory=lambda total_steps: optax.adam(_CHAR_TRANSFORMER["lr"]),
             train_config={"num_epochs": c["num_epochs"]},
             batch_size=c["batch_size"],
         )

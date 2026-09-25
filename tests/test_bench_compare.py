@@ -46,7 +46,7 @@ def test_our_trial_trains_exactly_what_the_experiment_framework_trains(
         for t in range(2)
     ]
 
-    arm = arm_for_row(row, num_epochs=1)
+    arm = arm_for_row(row, steps_per_epoch=len(loaders[0]), num_epochs=1)
     theirs = PlannedMultiContrastExperiment(
         arms=[arm],
         contrasts=[],

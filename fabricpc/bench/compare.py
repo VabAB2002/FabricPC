@@ -16,6 +16,7 @@ check that both give the same accuracy for the same seed.
 
 import functools
 import json
+import math
 from dataclasses import asdict
 from pathlib import Path
 from typing import Dict, Optional, Sequence, Tuple
@@ -29,8 +30,14 @@ from fabricpc.training import evaluate, train
 MIN_TRIALS = 2
 
 
-def arm_for_row(row: BenchmarkRow, num_epochs: Optional[float] = None) -> ExperimentArm:
-    """The row as an arm of PlannedMultiContrastExperiment."""
+def arm_for_row(
+    row: BenchmarkRow, *, steps_per_epoch: int, num_epochs: Optional[float] = None
+) -> ExperimentArm:
+    """The row as an arm of PlannedMultiContrastExperiment.
+
+    The framework builds the optimizer before it sees a loader, so the caller
+    says how many batches an epoch has; the learning-rate schedule needs it.
+    """
     algorithm = _TRAINER_ALGORITHM[row.algorithm]
     epochs = num_epochs if num_epochs is not None else row.train_config["num_epochs"]
     return ExperimentArm(
@@ -38,7 +45,7 @@ def arm_for_row(row: BenchmarkRow, num_epochs: Optional[float] = None) -> Experi
         model_factory=row.model_factory,
         train_fn=functools.partial(train, algorithm=algorithm),
         eval_fn=functools.partial(evaluate, algorithm=algorithm),
-        optimizer=row.optimizer_factory(),
+        optimizer=row.optimizer_factory(math.ceil(steps_per_epoch * float(epochs))),
         train_config={**row.train_config, "num_epochs": float(epochs)},
     )
 

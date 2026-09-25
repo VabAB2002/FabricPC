@@ -655,3 +655,55 @@ class NoisyTestLoader:
 
     def __len__(self):
         return len(self.base_loader)
+
+
+class AugmentedImageLoader:
+    """Wrapper that randomly flips and crops a base loader's training images.
+
+    The standard CIFAR recipe (and pcx's): each image is mirrored left to
+    right with probability ``flip_prob``, then padded by ``crop_pad`` pixels
+    of zeros on every side and cropped back to its size at a random offset.
+    Padding happens after normalization, so the zeros are the dataset's mean
+    colour rather than black. Labels pass through unchanged.
+
+    The random stream is made once from ``seed`` and keeps advancing, so every
+    epoch sees different flips and crops while a given seed always replays the
+    same sequence. Like the tfds loaders, construct a fresh instance per
+    training run. Use it for training data only.
+
+    Args:
+        base_loader: Any iterable loader yielding NHWC (images, labels) batches.
+        flip_prob: Chance of mirroring each image (0.0 turns flips off).
+        crop_pad: Pixels of padding for the random crop (0 turns crops off).
+        seed: Random seed for reproducible augmentation.
+    """
+
+    def __init__(
+        self, base_loader, flip_prob: float = 0.5, crop_pad: int = 4, seed: int = None
+    ):
+        self.base_loader = base_loader
+        self.flip_prob = flip_prob
+        self.crop_pad = crop_pad
+        self._rng = np.random.default_rng(seed)
+
+    def _augment(self, images):
+        n, h, w, _ = images.shape
+        if self.flip_prob > 0:
+            flip = self._rng.random(n) < self.flip_prob
+            images = np.where(flip[:, None, None, None], images[:, :, ::-1, :], images)
+        if self.crop_pad > 0:
+            p = self.crop_pad
+            padded = np.pad(images, ((0, 0), (p, p), (p, p), (0, 0)))
+            dy = self._rng.integers(0, 2 * p + 1, size=n)
+            dx = self._rng.integers(0, 2 * p + 1, size=n)
+            images = np.stack(
+                [padded[i, dy[i] : dy[i] + h, dx[i] : dx[i] + w] for i in range(n)]
+            )
+        return images
+
+    def __iter__(self):
+        for images, labels in self.base_loader:
+            yield self._augment(np.asarray(images)), labels
+
+    def __len__(self):
+        return len(self.base_loader)

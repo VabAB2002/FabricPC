@@ -1,6 +1,7 @@
 """Run one trial of one benchmark row and save the result as JSON."""
 
 import json
+import math
 import time
 import traceback
 from dataclasses import asdict, dataclass, field
@@ -23,6 +24,11 @@ _TRAINER_ALGORITHM = {"spc": "pc", "epc": "pc", "backprop": "backprop"}
 # Any fixed number works; it just keeps the timing key apart from the three
 # keys the experiment framework uses.
 _TIMING_STREAM = 7
+
+
+def total_train_steps(train_loader, num_epochs: float) -> int:
+    """Optimizer updates in a run: batches per epoch times epochs, rounded up."""
+    return math.ceil(len(train_loader) * float(num_epochs))
 
 
 def seed_for_trial(trial: int, seed_offset: int = 0) -> int:
@@ -87,11 +93,10 @@ def run_trial(
 
         params, structure = row.model_factory(graph_key)
         n_params = int(sum(p.size for p in jax.tree_util.tree_leaves(params)))
-        optimizer = row.optimizer_factory()
-
         # Timing reads a few batches, so training gets fresh loaders after it
         # (the framework also builds fresh loaders for every arm).
         timing_loader, _ = loaders or row.loader_factory(seed)
+        optimizer = row.optimizer_factory(total_train_steps(timing_loader, epochs))
         timing = time_steps(
             params,
             structure,

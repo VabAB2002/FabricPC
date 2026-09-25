@@ -27,7 +27,7 @@ def test_timing_reads_only_the_batches_it_needs(rng_key):
     timing = measure.time_steps(
         params,
         structure,
-        row.optimizer_factory(),
+        row.optimizer_factory(4),
         counting,
         rng_key,
         algorithm="backprop",

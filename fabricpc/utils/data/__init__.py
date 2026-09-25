@@ -9,6 +9,7 @@ from fabricpc.utils.data.dataloader import (
     FashionMnistLoader,
     FewShotLoader,
     NoisyTestLoader,
+    AugmentedImageLoader,
 )
 
 __all__ = [
@@ -22,4 +23,5 @@ __all__ = [
     "FashionMnistLoader",
     "FewShotLoader",
     "NoisyTestLoader",
+    "AugmentedImageLoader",
 ]
