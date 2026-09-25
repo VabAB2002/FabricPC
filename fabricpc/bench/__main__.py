@@ -156,8 +156,10 @@ def _run_row(
         else:
             failed += 1
             print(f"{row.id} trial {trial}: FAILED (see {out})", file=sys.stderr)
+        # After every trial, so a run cut off by a time limit is still tidy.
+        write_trials_csv(out, row.id)
 
-    write_trials_csv(out, row.id)
+    write_trials_csv(out, row.id)  # also covers a run where every trial was skipped
     summary = None
     if n_trials - failed >= MIN_TRIALS:
         summary = attach_band(out, row, summarize_row(out, row.id))

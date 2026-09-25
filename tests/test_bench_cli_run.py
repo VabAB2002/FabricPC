@@ -434,3 +434,27 @@ def test_running_a_family_runs_all_three_rows_then_compares(
         assert (tmp_path / f"tiny-mlp-{algo}" / "summary.json").exists()
     out = json.loads((tmp_path / "compare-tiny-mlp.json").read_text())
     assert len(out["contrasts"]) == 3
+
+
+def test_trials_csv_is_kept_up_to_date_if_a_run_is_cut_off(
+    tmp_path, monkeypatch, rng_key
+):
+    from fabricpc.bench import __main__ as cli
+
+    register_tiny_row(monkeypatch, rng_key)
+    real = cli.run_trial
+
+    def cut_off_at_trial_1(row, trial, *args, **kwargs):
+        if trial == 1:
+            raise KeyboardInterrupt  # like a time limit killing the run
+        return real(row, trial, *args, **kwargs)
+
+    monkeypatch.setattr(cli, "run_trial", cut_off_at_trial_1)
+    try:
+        main(_tiny_args(tmp_path))
+    except KeyboardInterrupt:
+        pass
+
+    with open(tmp_path / "tiny-mlp-spc" / "trials.csv") as f:
+        assert len(f.readlines()) == 2  # header + trial 0
+    assert main(["validate", str(tmp_path)]) == 0
