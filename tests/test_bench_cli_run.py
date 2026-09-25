@@ -325,3 +325,65 @@ def test_validate_command_fails_on_a_broken_folder(tmp_path, monkeypatch, rng_ke
     (tmp_path / "tiny-mlp-spc" / "manifest.json").unlink()
 
     assert main(["validate", str(tmp_path)]) != 0
+
+
+def _trial_names(tmp_path):
+    return sorted(p.name for p in (tmp_path / "tiny-mlp-spc").glob("trial*.json"))
+
+
+def _three_then(tmp_path, *extra):
+    """Run 3 trials, then run the same row again into the same folder."""
+    args3 = _tiny_args(tmp_path)
+    args3[args3.index("--trials") + 1] = "3"
+    assert main(args3) == 0
+    return main(_tiny_args(tmp_path, *extra))  # 2 trials
+
+
+def test_a_new_run_clears_the_rows_old_trials(tmp_path, monkeypatch, rng_key):
+    register_tiny_row(monkeypatch, rng_key)
+
+    assert _three_then(tmp_path) == 0
+
+    assert _trial_names(tmp_path) == ["trial0.json", "trial1.json"]
+    summary = json.loads((tmp_path / "tiny-mlp-spc" / "summary.json").read_text())
+    assert summary["n_ok"] == 2
+    assert main(["validate", str(tmp_path)]) == 0
+
+
+def test_resume_keeps_finished_trials_but_drops_ones_past_the_new_count(
+    tmp_path, monkeypatch, rng_key
+):
+    register_tiny_row(monkeypatch, rng_key)
+    args3 = _tiny_args(tmp_path)
+    args3[args3.index("--trials") + 1] = "3"
+    assert main(args3) == 0
+
+    ran = _count_trial_runs(monkeypatch)
+    assert main(_tiny_args(tmp_path, "--resume")) == 0
+
+    assert ran == []  # trials 0 and 1 were already done
+    assert _trial_names(tmp_path) == ["trial0.json", "trial1.json"]
+
+
+def test_an_old_summary_does_not_outlive_a_run_too_small_to_summarize(
+    tmp_path, monkeypatch, rng_key
+):
+    register_tiny_row(monkeypatch, rng_key)
+    assert main(_tiny_args(tmp_path)) == 0  # 2 trials -> summary.json
+    one = _tiny_args(tmp_path)
+    one[one.index("--trials") + 1] = "1"
+
+    assert main(one) == 0
+
+    assert not (tmp_path / "tiny-mlp-spc" / "summary.json").exists()
+
+
+def test_clearing_leaves_other_rows_alone(tmp_path, monkeypatch, rng_key):
+    register_tiny_row(monkeypatch, rng_key)
+    other = tmp_path / "some-other-row"
+    other.mkdir()
+    (other / "trial0.json").write_text("{}")
+
+    assert main(_tiny_args(tmp_path)) == 0
+
+    assert (other / "trial0.json").exists()

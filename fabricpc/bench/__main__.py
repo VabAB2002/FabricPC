@@ -19,6 +19,8 @@ A full run (the row's own epochs and seed count) is also checked against
 the row's expected score, when it has one, and prints PASS or FAIL. A FAIL
 makes the command exit non-zero.
 
+A run replaces that row's earlier results in the same ``--out`` folder, so
+old trials never mix with new ones; use another folder to keep them.
 ``--resume`` skips trials that already finished with the same epoch count,
 so a run cut off by a cloud session limit can pick up where it stopped.
 ``--zoo DIR`` saves each trial's trained weights there.
@@ -31,6 +33,7 @@ debugging; ``--trial i`` runs a single trial and is what each child does.
 import argparse
 import json
 import sys
+from pathlib import Path
 
 from fabricpc.bench.band import attach_band
 from fabricpc.bench.isolate import run_trial_in_child
@@ -86,6 +89,22 @@ def _unknown_row(row_id: str) -> int:
     return 2
 
 
+def _clear_old_results(out, row_id, *, keep_trials):
+    """Remove a row's earlier results, except trial numbers in ``keep_trials``.
+
+    Without this, a 2-seed run into a folder that held a 5-seed run would be
+    summarized with 3 stale trials mixed in. Other rows are not touched.
+    """
+    row_dir = Path(out) / row_id
+    if not row_dir.is_dir():
+        return
+    for path in row_dir.glob("trial*.json"):
+        if int(path.stem[5:]) not in keep_trials:
+            path.unlink()
+    for name in ("summary.json", "trials.csv"):
+        (row_dir / name).unlink(missing_ok=True)
+
+
 def _run_row(
     row,
     out,
@@ -101,6 +120,7 @@ def _run_row(
 ):
     """Run every trial of one row, then summarize. Returns (failed, summary)."""
     run_one = run_trial if in_process else run_trial_in_child
+    _clear_old_results(out, row.id, keep_trials=range(n_trials) if resume else ())
     write_manifest(
         out,
         row,
