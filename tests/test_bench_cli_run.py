@@ -5,8 +5,14 @@ import json
 
 
 from fabricpc.bench import registry
-from fabricpc.bench.__main__ import main
+from fabricpc.bench.__main__ import main as cli_main
 from tests.test_bench_runner import fake_mnist_loaders
+
+
+def main(argv):
+    """Run the CLI in this process: the tiny test rows only exist here, so a
+    child process would not find them. test_bench_isolate covers the child."""
+    return cli_main([*argv, "--in-process"])
 
 
 def register_tiny_row(monkeypatch, rng_key):
@@ -274,3 +280,32 @@ def test_a_run_matching_its_expected_score_passes(tmp_path, monkeypatch, rng_key
     assert code == 0
     summary = json.loads((tmp_path / "tiny-mlp-spc" / "summary.json").read_text())
     assert summary["band"]["status"] == "pass"
+
+
+def test_trial_flag_runs_just_that_one_trial(tmp_path, monkeypatch, rng_key):
+    register_tiny_row(monkeypatch, rng_key)
+
+    code = main([*_tiny_args(tmp_path), "--trial", "1"])
+
+    assert code == 0
+    row_dir = tmp_path / "tiny-mlp-spc"
+    assert [p.name for p in row_dir.glob("trial*.json")] == ["trial1.json"]
+    assert not (row_dir / "summary.json").exists()
+
+
+def test_by_default_each_trial_runs_in_its_own_process(tmp_path, monkeypatch, rng_key):
+    from fabricpc.bench import __main__ as cli
+    from fabricpc.bench.runner import run_trial
+
+    register_tiny_row(monkeypatch, rng_key)
+    in_child = []
+
+    def fake_child(row, trial, out, **kwargs):
+        in_child.append(trial)
+        return run_trial(row, trial, out, **kwargs)  # same work, no real child
+
+    monkeypatch.setattr(cli, "run_trial_in_child", fake_child)
+    code = cli_main(_tiny_args(tmp_path))  # no --in-process
+
+    assert code == 0
+    assert in_child == [0, 1]

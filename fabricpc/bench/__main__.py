@@ -19,6 +19,10 @@ makes the command exit non-zero.
 ``--resume`` skips trials that already finished with the same epoch count,
 so a run cut off by a cloud session limit can pick up where it stopped.
 ``--zoo DIR`` saves each trial's trained weights there.
+
+Each trial runs in its own Python process (see ``fabricpc.bench.isolate``).
+``--in-process`` runs them all in this one instead, which is handy for
+debugging; ``--trial i`` runs a single trial and is what each child does.
 """
 
 import argparse
@@ -26,6 +30,7 @@ import json
 import sys
 
 from fabricpc.bench.band import attach_band
+from fabricpc.bench.isolate import run_trial_in_child
 from fabricpc.bench.manifest import describe_row, write_manifest
 from fabricpc.bench.registry import ROWS
 from fabricpc.bench.runner import finished_trial, run_trial, seed_for_trial
@@ -54,6 +59,12 @@ def _parser() -> argparse.ArgumentParser:
         "--resume", action="store_true", help="skip trials that already finished"
     )
     p.add_argument("--zoo", help="save each trial's trained weights in this folder")
+    p.add_argument("--trial", type=int, help="run only this one trial")
+    p.add_argument(
+        "--in-process",
+        action="store_true",
+        help="run trials in this process instead of one process each",
+    )
     return p
 
 
@@ -67,9 +78,20 @@ def _unknown_row(row_id: str) -> int:
 
 
 def _run_row(
-    row, out, *, n_trials, epochs, warmup, timed, command, resume=False, zoo=None
+    row,
+    out,
+    *,
+    n_trials,
+    epochs,
+    warmup,
+    timed,
+    command,
+    resume=False,
+    zoo=None,
+    in_process=False,
 ):
     """Run every trial of one row, then summarize. Returns (failed, summary)."""
+    run_one = run_trial if in_process else run_trial_in_child
     write_manifest(
         out,
         row,
@@ -82,7 +104,7 @@ def _run_row(
         if resume and finished_trial(out, row.id, trial, wanted_epochs):
             print(f"{row.id} trial {trial}: already done, skipping")
             continue
-        result = run_trial(
+        result = run_one(
             row,
             trial,
             out,
@@ -157,6 +179,7 @@ def cmd_smoke(args, command) -> int:
         warmup=2,
         timed=5,
         command=command,
+        in_process=args.in_process,
     )
     if failed or summary is None:
         print("smoke: a trial failed", file=sys.stderr)
@@ -172,6 +195,20 @@ def cmd_smoke(args, command) -> int:
     return 0
 
 
+def cmd_one_trial(row, args) -> int:
+    """Run a single trial here and write its file. This is what a child runs."""
+    result = run_trial(
+        row,
+        args.trial,
+        args.out,
+        num_epochs=args.epochs,
+        warmup_steps=args.warmup,
+        timed_steps=args.timed,
+        zoo_dir=args.zoo,
+    )
+    return 0 if result.status == "ok" else 1
+
+
 def cmd_run(args, command) -> int:
     row = ROWS.get(args.target)
     if row is None:
@@ -179,6 +216,8 @@ def cmd_run(args, command) -> int:
     if args.dry_run:
         print(json.dumps(describe_row(row), indent=2))
         return 0
+    if args.trial is not None:
+        return cmd_one_trial(row, args)
     n_trials = args.trials if args.trials is not None else row.n_trials
     failed, summary = _run_row(
         row,
@@ -190,6 +229,7 @@ def cmd_run(args, command) -> int:
         command=command,
         resume=args.resume,
         zoo=args.zoo,
+        in_process=args.in_process,
     )
     band_failed = summary is not None and summary.band["status"] == "fail"
     return 1 if failed or band_failed else 0

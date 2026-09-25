@@ -100,8 +100,9 @@ def memory_snapshot() -> MemorySnapshot:
     both are None and the result file says so instead of guessing.
 
     The peak counts everything since the process started, compile buffers
-    included. Trials still share one process, so a later trial's peak can
-    carry over from an earlier, bigger one.
+    included. Each trial normally gets its own process, so the peak is that
+    trial's alone; with ``--in-process`` a later trial's peak can carry over
+    from an earlier, bigger one.
     """
     jax.block_until_ready(jax.numpy.zeros(1))
     device = jax.local_devices()[0]
