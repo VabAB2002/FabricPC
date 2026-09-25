@@ -235,3 +235,105 @@ class ConvNode(NodeBase):
         activation = node_info.activation
         z_mu = type(activation).forward(pre_activation, activation.config)
         return z_mu, None
+
+
+class ConvPoolNode(ConvNode):
+    """
+    A convolution, activation and max pool in one PC node.
+
+    ``shape`` is the pooled output, and that pooled value is the node's latent
+    state. This is pcx's VGG layout, where each conv block is a single node.
+    A separate ``MaxPool`` node adds a latent state of its own and so makes
+    the PC chain twice as deep; state-based PC loses signal with every extra
+    layer, while backprop computes the same function either way.
+
+    Takes ConvNode's arguments plus ``pool_window`` (default 2x2). The pool
+    stride equals the window and uses no padding, so every spatial size
+    divides by the window.
+    """
+
+    def __init__(
+        self,
+        shape: Tuple[int, ...],
+        name: str,
+        kernel_size: Tuple[int, ...],
+        pool_window: Tuple[int, ...] = (2, 2),
+        stride: Optional[Tuple[int, ...]] = None,
+        padding: Union[str, Sequence[Tuple[int, int]]] = "SAME",
+        activation: "ActivationBase" = ReLUActivation(),
+        energy: "EnergyFunctional" = GaussianEnergy(),
+        use_bias: bool = True,
+        weight_init: "InitializerBase" = KaimingInitializer(),
+        bias_init: "InitializerBase" = ZerosInitializer(),
+        latent_init: "InitializerBase" = NormalInitializer(),
+    ):
+        if stride is None:
+            stride = (1,) * (len(shape) - 1)
+        NodeBase.__init__(
+            self,
+            shape=shape,
+            name=name,
+            activation=activation,
+            energy=energy,
+            latent_init=latent_init,
+            weight_init=weight_init,
+            use_bias=use_bias,
+            bias_init=bias_init,
+            kernel_size=kernel_size,
+            stride=stride,
+            padding=padding,
+            pool_window=tuple(pool_window),
+        )
+
+    @staticmethod
+    def _unpooled_shape(node_shape, config) -> Tuple[int, ...]:
+        window = config.get("pool_window", (2, 2))
+        spatial = tuple(s * w for s, w in zip(node_shape[:-1], window))
+        return (*spatial, node_shape[-1])
+
+    @staticmethod
+    def initialize_params(
+        key: jax.Array,
+        node_shape: Tuple[int, ...],
+        input_shapes: Dict[str, Tuple[int, ...]],
+        weight_init: "InitializerBase",
+        config: Optional[Dict[str, Any]] = None,
+    ) -> NodeParams:
+        """Same kernels as ConvNode, checked against the conv's unpooled output."""
+        config = config or {}
+        unpooled = ConvPoolNode._unpooled_shape(node_shape, config)
+        return ConvNode.initialize_params(
+            key, unpooled, input_shapes, weight_init, config
+        )
+
+    @staticmethod
+    def predict(
+        params: NodeParams,
+        inputs: Dict[str, jnp.ndarray],
+        state: NodeState,
+        node_info: NodeInfo,
+    ) -> Tuple[jnp.ndarray, None]:
+        """conv sum -> bias -> activation -> max pool."""
+        config = node_info.node_config
+        dim_numbers = ConvNode._DIM_NUMBERS[len(node_info.shape) - 1]
+
+        pre_activation = None
+        for edge_key, x in inputs.items():
+            conv = lax.conv_general_dilated(
+                lhs=x,
+                rhs=params.weights[edge_key],
+                window_strides=config.get("stride"),
+                padding=config.get("padding"),
+                dimension_numbers=dim_numbers,
+            )
+            pre_activation = conv if pre_activation is None else pre_activation + conv
+
+        if "b" in params.biases and params.biases["b"].size > 0:
+            pre_activation = pre_activation + params.biases["b"]
+
+        activation = node_info.activation
+        activated = type(activation).forward(pre_activation, activation.config)
+
+        window = (1, *config.get("pool_window", (2, 2)), 1)
+        z_mu = lax.reduce_window(activated, -jnp.inf, lax.max, window, window, "VALID")
+        return z_mu, None

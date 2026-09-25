@@ -29,7 +29,7 @@ from fabricpc.nodes.transformer_v2 import (
 from fabricpc.nodes.storkey_hopfield import StorkeyHopfield
 from fabricpc.nodes.skip_connection import SkipConnection
 from fabricpc.nodes.linear_residual import LinearResidual
-from fabricpc.nodes.convolutional import ConvNode
+from fabricpc.nodes.convolutional import ConvNode, ConvPoolNode
 from fabricpc.nodes.pooling import MaxPool, AvgPool
 
 __all__ = [
@@ -45,6 +45,7 @@ __all__ = [
     "TransformerBlock",
     "IdentityNode",
     "ConvNode",
+    "ConvPoolNode",
     "MaxPool",
     "AvgPool",
     "EmbeddingNode",

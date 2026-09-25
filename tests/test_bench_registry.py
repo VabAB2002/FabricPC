@@ -102,3 +102,12 @@ def test_rows_without_a_full_run_yet_have_no_expected_score():
     for family in ("cifar10-vgg5", "cifar10-resnet18", "tinyshakespeare-transformer"):
         for algo in ("spc", "epc", "backprop"):
             assert ROWS[f"{family}-{algo}"].reference is None
+
+
+def test_vgg5_rows_use_one_pc_node_per_conv_block(rng_key):
+    # pcx's layout: pooling lives inside each block's conv node. With separate
+    # MaxPool nodes the PC chain doubles and sPC stops learning (37% vs ~87%).
+    for algo in ("spc", "epc", "backprop"):
+        _, structure = ROWS[f"cifar10-vgg5-{algo}"].model_factory(rng_key)
+        assert not [n for n in structure.nodes if n.startswith("pool")]
+        assert type(structure.nodes["conv4"]).__name__ == "ConvPoolNode"

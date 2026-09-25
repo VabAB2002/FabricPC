@@ -27,7 +27,7 @@ from fabricpc.core.inference import InferenceBase
 from fabricpc.core.initializers import InitializerBase, KaimingInitializer
 from fabricpc.core.topology import Edge
 from fabricpc.graph_assembly import TaskMap, graph
-from fabricpc.nodes import ConvNode, IdentityNode, Linear, MaxPool
+from fabricpc.nodes import ConvNode, ConvPoolNode, IdentityNode, Linear, MaxPool
 
 # Each inner list is one block; a 2x2 max pool follows every block.
 _BLOCKS = {
@@ -46,6 +46,7 @@ def create_vgg(
     activation: Optional[ActivationBase] = None,
     weight_init: Optional[InitializerBase] = None,
     scaling=None,
+    fuse_pool: bool = False,
 ):
     """Build a VGG graph of the given depth.
 
@@ -57,6 +58,11 @@ def create_vgg(
         activation: hidden activation; GELU by default, as in pcx's CIFAR runs.
         weight_init: conv/linear initializer; Kaiming by default.
         scaling: optional MuPCConfig, passed straight to ``graph``.
+        fuse_pool: put each block's max pool inside its last conv node
+            (``ConvPoolNode``), as pcx does, instead of a separate ``MaxPool``
+            node. Backprop computes the same function either way; for
+            predictive coding it halves the number of latent layers, which
+            state-based PC needs to train VGG-5 well.
 
     Returns:
         A GraphStructure ready for ``initialize_params``.
@@ -73,20 +79,25 @@ def create_vgg(
     conv_i = 0
 
     for block_i, channels in enumerate(_BLOCKS[depth], start=1):
-        for c in channels:
+        for j, c in enumerate(channels):
             conv_i += 1
-            conv = ConvNode(
-                shape=(height, width, c),
+            common = dict(
                 name=f"conv{conv_i}",
                 kernel_size=(3, 3),
                 padding="SAME",
                 activation=activation,
                 weight_init=weight_init,
             )
+            if fuse_pool and j == len(channels) - 1:
+                conv = ConvPoolNode(shape=(height // 2, width // 2, c), **common)
+            else:
+                conv = ConvNode(shape=(height, width, c), **common)
             nodes.append(conv)
             edges.append(Edge(source=prev, target=conv.slot("in")))
             prev = conv
         height, width = height // 2, width // 2
+        if fuse_pool:
+            continue
         pool = MaxPool(
             shape=(height, width, channels[-1]),
             name=f"pool{block_i}",

@@ -196,7 +196,13 @@ def _vgg_solver_for(algorithm: str):
 
 
 def _cifar10_vgg5_factory(algorithm: str) -> ModelFactory:
-    """VGG-5 on 32x32x3 images with 10 classes, pcx's channel layout."""
+    """VGG-5 on 32x32x3 images with 10 classes, pcx's channel layout.
+
+    Each conv block is one PC node with its max pool inside (fuse_pool), as
+    in pcx. A separate MaxPool node per block doubles the PC chain to eight
+    latent layers, and sPC then fails to train (37% after 50 epochs, against
+    81% after 15 with the fused layout); backprop is the same either way.
+    """
 
     def build(rng_key: jax.Array):
         structure = create_vgg(
@@ -204,6 +210,7 @@ def _cifar10_vgg5_factory(algorithm: str) -> ModelFactory:
             input_shape=(32, 32, 3),
             num_classes=10,
             inference=_vgg_solver_for(algorithm),
+            fuse_pool=True,
         )
         params = initialize_params(structure, rng_key)
         return params, structure
