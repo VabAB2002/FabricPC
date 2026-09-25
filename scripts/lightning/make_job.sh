@@ -17,7 +17,8 @@
 set -euo pipefail
 args="$1"
 limit="$2"
-commit="${3:-$(git -C "$(dirname "$0")" rev-parse HEAD)}"
+# GitHub only serves a commit by its full id, so expand short ids here.
+commit="$(git -C "$(dirname "$0")" rev-parse --verify "${3:-HEAD}^{commit}")"
 restore="${4:-}"
 
 cat <<OUTER
@@ -43,8 +44,8 @@ if [ -n "${FABRICPC_REPO:-}" ]; then
   cd "$FABRICPC_REPO"
 else
   git init -q /work && cd /work
-  git fetch -q --depth 1 https://github.com/VabAB2002/FabricPC.git "$COMMIT"
-  git checkout -q FETCH_HEAD
+  git fetch -q --depth 1 https://github.com/VabAB2002/FabricPC.git "$COMMIT" \
+    && git checkout -q FETCH_HEAD || { echo "SETUP FAILED: cannot get $COMMIT"; exit 1; }
   pip install -q -U pip
   pip install -q -e ".[all,cuda12]" "jax[cuda12]==0.10.2" "optax==0.2.8"
 fi
