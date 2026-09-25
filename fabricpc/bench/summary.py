@@ -13,7 +13,7 @@ import json
 import math
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import numpy as np
 
@@ -54,6 +54,8 @@ class RowSummary:
     timing: Dict[str, Dict[str, float]] = field(default_factory=dict)
     compute: Dict[str, float] = field(default_factory=dict)
     n_params: int = 0
+    num_epochs: float = 0.0
+    band: Optional[Dict[str, object]] = None  # filled in by fabricpc.bench.band
 
 
 def summarize_row(results_dir, row_id: str) -> RowSummary:
@@ -84,10 +86,15 @@ def summarize_row(results_dir, row_id: str) -> RowSummary:
         timing=timing,
         compute=ok[0].get("compute", {}),  # same for every trial of a row
         n_params=ok[0]["n_params"],
+        num_epochs=float(ok[0].get("num_epochs", 0.0)),
     )
-    path = Path(results_dir) / row_id / "summary.json"
-    path.write_text(json.dumps(asdict(summary), indent=2))
+    write_summary(results_dir, summary)
     return summary
+
+
+def write_summary(results_dir, summary: RowSummary) -> None:
+    path = Path(results_dir) / summary.row_id / "summary.json"
+    path.write_text(json.dumps(asdict(summary), indent=2))
 
 
 @dataclass(frozen=True)

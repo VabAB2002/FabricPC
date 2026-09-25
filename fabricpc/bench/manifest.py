@@ -9,6 +9,7 @@ import os
 import platform
 import subprocess
 import sys
+from dataclasses import asdict
 from datetime import datetime, timezone
 from importlib import metadata
 from pathlib import Path
@@ -20,7 +21,7 @@ import fabricpc
 from fabricpc.bench.registry import BenchmarkRow
 
 # Bump this when a field is added, renamed, or changes meaning.
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2  # 2: expected score, band verdict, peak memory
 
 
 def _package_version(name: str) -> Optional[str]:
@@ -57,6 +58,7 @@ def describe_row(row: BenchmarkRow) -> dict:
         "batch_size": row.batch_size,
         "train_config": dict(row.train_config),
         "tier": row.tier,
+        "reference": asdict(row.reference) if row.reference else None,
     }
 
 

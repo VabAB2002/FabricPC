@@ -12,6 +12,10 @@ more good trials) a summary with the mean and standard error. ``smoke`` is
 the short run CI uses: a small row, two seeds, half an epoch, and a check
 that accuracy is still above a floor.
 
+A full run (the row's own epochs and seed count) is also checked against
+the row's expected score, when it has one, and prints PASS or FAIL. A FAIL
+makes the command exit non-zero.
+
 ``--resume`` skips trials that already finished with the same epoch count,
 so a run cut off by a cloud session limit can pick up where it stopped.
 ``--zoo DIR`` saves each trial's trained weights there.
@@ -21,6 +25,7 @@ import argparse
 import json
 import sys
 
+from fabricpc.bench.band import attach_band
 from fabricpc.bench.manifest import describe_row, write_manifest
 from fabricpc.bench.registry import ROWS
 from fabricpc.bench.runner import finished_trial, run_trial, seed_for_trial
@@ -99,13 +104,19 @@ def _run_row(
 
     summary = None
     if n_trials - failed >= MIN_TRIALS:
-        summary = summarize_row(out, row.id)
+        summary = attach_band(out, row, summarize_row(out, row.id))
         acc = summary.metrics.get("accuracy")
         if acc:
             print(
                 f"{row.id}: accuracy {acc['mean']:.4f} ± {acc['se']:.4f} "
                 f"(n={acc['n']}), step {summary.timing['step_time_ms']['mean']:.2f}ms"
             )
+        band = summary.band
+        label = {"pass": "PASS", "fail": "FAIL"}.get(band["status"], "no verdict")
+        pending = (
+            " (band rule pending sponsor sign-off)" if band["pending_signoff"] else ""
+        )
+        print(f"{row.id}: band {label}: {band['reason']}{pending}")
     return failed, summary
 
 
@@ -169,7 +180,7 @@ def cmd_run(args, command) -> int:
         print(json.dumps(describe_row(row), indent=2))
         return 0
     n_trials = args.trials if args.trials is not None else row.n_trials
-    failed, _ = _run_row(
+    failed, summary = _run_row(
         row,
         args.out,
         n_trials=n_trials,
@@ -180,7 +191,8 @@ def cmd_run(args, command) -> int:
         resume=args.resume,
         zoo=args.zoo,
     )
-    return 1 if failed else 0
+    band_failed = summary is not None and summary.band["status"] == "fail"
+    return 1 if failed or band_failed else 0
 
 
 def main(argv=None) -> int:

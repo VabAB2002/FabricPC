@@ -6,7 +6,7 @@ compared on equal footing. Row ids look like ``mnist-mlp-spc``.
 """
 
 from dataclasses import dataclass
-from typing import Callable, Dict, Mapping, Tuple
+from typing import Callable, Dict, Mapping, Optional, Tuple
 
 import jax
 import optax
@@ -36,6 +36,21 @@ LoaderFactory = Callable[[int], Tuple[object, object]]
 
 
 @dataclass(frozen=True)
+class Reference:
+    """The score a full run of a row is expected to land near.
+
+    ``floor`` is the smallest allowed miss, in the metric's own units (0.005
+    is half a percentage point of accuracy). ``fabricpc.bench.band`` widens
+    it to two standard errors when the run is noisier than that.
+    """
+
+    metric: str
+    value: float
+    source: str  # where the number came from, so anyone can check it
+    floor: float = 0.005
+
+
+@dataclass(frozen=True)
 class BenchmarkRow:
     """Everything needed to run one benchmark row."""
 
@@ -50,6 +65,7 @@ class BenchmarkRow:
     batch_size: int
     n_trials: int = 5
     tier: int = 1
+    reference: Optional[Reference] = None  # None until a full run sets one
 
 
 def _solver_for(algorithm: str):
@@ -132,6 +148,15 @@ def _flat_image_loaders(dataset: str, batch_size: int) -> LoaderFactory:
     return build
 
 
+# Mean test accuracy from our first full runs: 5 seeds x 20 epochs on a
+# Colab T4, 2026-09-23. These are our own numbers, not pcx's.
+_MLP_STAGE1_SOURCE = "Team 16 first full run, Colab T4, 5 seeds x 20 epochs, 2026-09-23"
+_MLP_STAGE1_ACCURACY = {
+    "mnist": {"spc": 0.9818, "epc": 0.9815, "backprop": 0.9816},
+    "fashionmnist": {"spc": 0.8840, "epc": 0.8881, "backprop": 0.8888},
+}
+
+
 def _mlp_family(dataset: str) -> Dict[str, BenchmarkRow]:
     """The 784-256-64-10 MLP on a flattened-image dataset, three algorithms."""
     rows = {}
@@ -148,6 +173,11 @@ def _mlp_family(dataset: str) -> Dict[str, BenchmarkRow]:
             optimizer_factory=lambda: optax.adamw(0.001, weight_decay=0.1),
             train_config={"num_epochs": 20},
             batch_size=batch_size,
+            reference=Reference(
+                metric="accuracy",
+                value=_MLP_STAGE1_ACCURACY[dataset][algo],
+                source=_MLP_STAGE1_SOURCE,
+            ),
         )
     return rows
 

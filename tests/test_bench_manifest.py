@@ -43,3 +43,13 @@ def test_manifest_records_the_git_commit_when_inside_a_repo(tmp_path):
     m = json.loads(write_manifest(tmp_path, row, seeds=[0], command=[]).read_text())
     # This test file lives inside the FabricPC git repo, so a sha is expected.
     assert m["git_sha"] is None or len(m["git_sha"]) == 40
+
+
+def test_row_description_includes_the_expected_score():
+    from fabricpc.bench.manifest import describe_row
+    from fabricpc.bench.registry import ROWS
+
+    judged = describe_row(ROWS["mnist-mlp-spc"])["reference"]
+    assert judged["metric"] == "accuracy"
+    assert "Colab T4" in judged["source"]
+    assert describe_row(ROWS["cifar10-vgg5-spc"])["reference"] is None

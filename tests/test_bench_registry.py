@@ -85,3 +85,20 @@ def test_fashionmnist_mlp_rows_reuse_the_mnist_graph(rng_key):
         assert row.model == "mlp"
     _, structure = ROWS["fashionmnist-mlp-spc"].model_factory(rng_key)
     assert len(structure.nodes) == 4  # same 784-256-64-10 MLP as MNIST
+
+
+def test_mlp_rows_carry_an_expected_score_from_our_own_runs():
+    for dataset in ("mnist", "fashionmnist"):
+        for algo in ("spc", "epc", "backprop"):
+            ref = ROWS[f"{dataset}-mlp-{algo}"].reference
+            assert ref is not None
+            assert ref.metric == "accuracy"
+            assert 0.8 < ref.value < 1.0
+            assert "Colab T4" in ref.source
+
+
+def test_rows_without_a_full_run_yet_have_no_expected_score():
+    # They get one from their first full 5-seed GPU run, not from pcx.
+    for family in ("cifar10-vgg5", "cifar10-resnet18", "tinyshakespeare-transformer"):
+        for algo in ("spc", "epc", "backprop"):
+            assert ROWS[f"{family}-{algo}"].reference is None

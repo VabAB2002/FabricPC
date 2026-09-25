@@ -230,3 +230,47 @@ def test_zoo_flag_saves_a_checkpoint_per_trial(tmp_path, monkeypatch, rng_key):
             (tmp_path / "tiny-mlp-spc" / f"trial{trial}.json").read_text()
         )
         assert result["checkpoint"].endswith(f"trial{trial}")
+
+
+def _with_reference(monkeypatch, rng_key, value):
+    """The tiny row, run the full way (2 seeds, 1 epoch), with an expected score."""
+    from fabricpc.bench.registry import Reference
+
+    tiny = register_tiny_row(monkeypatch, rng_key)
+    ref = Reference(metric="accuracy", value=value, source="test")
+    judged = dataclasses.replace(
+        tiny, reference=ref, n_trials=2, train_config={"num_epochs": 1}
+    )
+    monkeypatch.setitem(registry.ROWS, "tiny-mlp-spc", judged)
+
+
+def test_a_run_far_from_its_expected_score_fails_the_command(
+    tmp_path, monkeypatch, rng_key
+):
+    _with_reference(monkeypatch, rng_key, value=2.0)  # impossible accuracy
+
+    code = main(
+        ["tiny-mlp-spc", "--out", str(tmp_path), "--warmup", "1", "--timed", "2"]
+    )
+
+    assert code != 0
+    summary = json.loads((tmp_path / "tiny-mlp-spc" / "summary.json").read_text())
+    assert summary["band"]["status"] == "fail"
+    assert summary["band"]["pending_signoff"] is True
+
+
+def test_a_run_matching_its_expected_score_passes(tmp_path, monkeypatch, rng_key):
+    # Run once to learn what the tiny row scores, then expect exactly that.
+    register_tiny_row(monkeypatch, rng_key)
+    args = ["tiny-mlp-spc", "--out", str(tmp_path), "--trials", "2", "--epochs", "1"]
+    assert main([*args, "--warmup", "1", "--timed", "2"]) == 0
+    first = json.loads((tmp_path / "tiny-mlp-spc" / "summary.json").read_text())
+    _with_reference(monkeypatch, rng_key, value=first["metrics"]["accuracy"]["mean"])
+
+    code = main(
+        ["tiny-mlp-spc", "--out", str(tmp_path), "--warmup", "1", "--timed", "2"]
+    )
+
+    assert code == 0
+    summary = json.loads((tmp_path / "tiny-mlp-spc" / "summary.json").read_text())
+    assert summary["band"]["status"] == "pass"
