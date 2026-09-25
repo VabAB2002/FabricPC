@@ -87,15 +87,31 @@ def time_steps(
     )
 
 
-def memory_bytes_in_use() -> Optional[int]:
-    """Bytes the default device has in use right now, or None if it cannot say.
+@dataclass(frozen=True)
+class MemorySnapshot:
+    bytes_in_use: Optional[int]  # what is held right now
+    peak_bytes: Optional[int]  # the most ever held so far in this process
 
-    GPU devices report this. The CPU device does not, so on a laptop this is
-    None and the result file says so instead of guessing.
+
+def memory_snapshot() -> MemorySnapshot:
+    """Read the default device's memory numbers, or None where it cannot say.
+
+    GPU devices report both. The CPU device reports nothing, so on a laptop
+    both are None and the result file says so instead of guessing.
+
+    The peak counts everything since the process started, compile buffers
+    included. Trials still share one process, so a later trial's peak can
+    carry over from an earlier, bigger one.
     """
     jax.block_until_ready(jax.numpy.zeros(1))
     device = jax.local_devices()[0]
     stats = device.memory_stats() if hasattr(device, "memory_stats") else None
     if not stats:
-        return None
-    return int(stats.get("bytes_in_use", 0))
+        return MemorySnapshot(bytes_in_use=None, peak_bytes=None)
+
+    def read(key):
+        return int(stats[key]) if key in stats else None
+
+    return MemorySnapshot(
+        bytes_in_use=read("bytes_in_use"), peak_bytes=read("peak_bytes_in_use")
+    )

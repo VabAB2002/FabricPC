@@ -10,7 +10,7 @@ from typing import Dict, Optional
 import jax
 
 from fabricpc.bench.compute import count_compute
-from fabricpc.bench.measure import memory_bytes_in_use, time_steps
+from fabricpc.bench.measure import memory_snapshot, time_steps
 from fabricpc.bench.registry import BenchmarkRow
 from fabricpc.bench.zoo import save_params
 from fabricpc.training import evaluate, train
@@ -36,7 +36,8 @@ class TrialResult:
     compile_time_s: float = 0.0
     step_time_ms: float = 0.0
     train_time_s: float = 0.0
-    memory_bytes: Optional[int] = None
+    memory_bytes: Optional[int] = None  # held after warmup
+    peak_memory_bytes: Optional[int] = None  # most held by the end of the trial
     num_epochs: float = 0.0
     compute: Dict[str, float] = field(default_factory=dict)
     achieved_tflops: float = 0.0  # flops per update / measured step time
@@ -90,7 +91,7 @@ def run_trial(
             warmup_steps=warmup_steps,
             timed_steps=timed_steps,
         )
-        memory = memory_bytes_in_use()
+        memory = memory_snapshot().bytes_in_use
 
         compute = count_compute(
             params, structure, batch_size=row.batch_size, algorithm=row.algorithm
@@ -123,6 +124,7 @@ def run_trial(
             algorithm=algorithm,
         )
         metrics = {k: float(v) for k, v in raw.items()}
+        peak_memory = memory_snapshot().peak_bytes
 
         checkpoint = None
         if zoo_dir is not None:
@@ -146,6 +148,7 @@ def run_trial(
             step_time_ms=timing.step_time_ms,
             train_time_s=train_time_s,
             memory_bytes=memory,
+            peak_memory_bytes=peak_memory,
             num_epochs=epochs,
             compute=asdict(compute),
             achieved_tflops=achieved_tflops,
@@ -166,3 +169,17 @@ def run_trial(
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(asdict(result), indent=2))
     return result
+
+
+def finished_trial(out_dir, row_id: str, trial: int, num_epochs: float) -> bool:
+    """True when ``trial<i>.json`` holds a good result for this epoch count.
+
+    Used by ``--resume``. A failed trial, a missing or broken file, or one
+    trained for a different number of epochs does not count as finished.
+    """
+    path = Path(out_dir) / row_id / f"trial{trial}.json"
+    try:
+        saved = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return False
+    return saved.get("status") == "ok" and saved.get("num_epochs") == float(num_epochs)

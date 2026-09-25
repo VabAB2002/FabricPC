@@ -130,3 +130,103 @@ def test_smoke_fails_when_accuracy_is_below_the_floor(tmp_path, monkeypatch, rng
         ["smoke", "--row", "tiny-mlp-spc", "--floor", "0.99", "--out", str(tmp_path)]
     )
     assert code != 0
+
+
+def _tiny_args(tmp_path, *extra):
+    return [
+        "tiny-mlp-spc",
+        "--out",
+        str(tmp_path),
+        "--trials",
+        "2",
+        "--epochs",
+        "1",
+        "--warmup",
+        "1",
+        "--timed",
+        "2",
+        *extra,
+    ]
+
+
+def _count_trial_runs(monkeypatch):
+    """Wrap run_trial so a test can see which trials actually trained."""
+    from fabricpc.bench import __main__ as cli
+
+    ran = []
+    real = cli.run_trial
+
+    def counting(row, trial, *args, **kwargs):
+        ran.append(trial)
+        return real(row, trial, *args, **kwargs)
+
+    monkeypatch.setattr(cli, "run_trial", counting)
+    return ran
+
+
+def test_resume_skips_trials_that_already_finished(tmp_path, monkeypatch, rng_key):
+    register_tiny_row(monkeypatch, rng_key)
+    assert main(_tiny_args(tmp_path)) == 0
+    # Pretend the session died before trial 1 was written.
+    (tmp_path / "tiny-mlp-spc" / "trial1.json").unlink()
+
+    ran = _count_trial_runs(monkeypatch)
+    assert main(_tiny_args(tmp_path, "--resume")) == 0
+
+    assert ran == [1]
+    summary = json.loads((tmp_path / "tiny-mlp-spc" / "summary.json").read_text())
+    assert summary["n_ok"] == 2
+
+
+def test_resume_reruns_a_failed_trial(tmp_path, monkeypatch, rng_key):
+    register_tiny_row(monkeypatch, rng_key)
+    assert main(_tiny_args(tmp_path)) == 0
+    path = tmp_path / "tiny-mlp-spc" / "trial0.json"
+    failed = {**json.loads(path.read_text()), "status": "failed"}
+    path.write_text(json.dumps(failed))
+
+    ran = _count_trial_runs(monkeypatch)
+    assert main(_tiny_args(tmp_path, "--resume")) == 0
+
+    assert ran == [0]
+    assert json.loads(path.read_text())["status"] == "ok"
+
+
+def test_resume_reruns_a_trial_trained_for_a_different_epoch_count(
+    tmp_path, monkeypatch, rng_key
+):
+    register_tiny_row(monkeypatch, rng_key)
+    assert main(_tiny_args(tmp_path)) == 0
+
+    ran = _count_trial_runs(monkeypatch)
+    args = _tiny_args(tmp_path, "--resume")
+    args[args.index("--epochs") + 1] = "2"
+    assert main(args) == 0
+
+    # Old results were for 1 epoch, so neither can be reused for 2.
+    assert ran == [0, 1]
+
+
+def test_without_resume_every_trial_runs_again(tmp_path, monkeypatch, rng_key):
+    register_tiny_row(monkeypatch, rng_key)
+    assert main(_tiny_args(tmp_path)) == 0
+
+    ran = _count_trial_runs(monkeypatch)
+    assert main(_tiny_args(tmp_path)) == 0
+
+    assert ran == [0, 1]
+
+
+def test_zoo_flag_saves_a_checkpoint_per_trial(tmp_path, monkeypatch, rng_key):
+    register_tiny_row(monkeypatch, rng_key)
+    zoo = tmp_path / "zoo"
+
+    assert main(_tiny_args(tmp_path, "--zoo", str(zoo))) == 0
+
+    for trial in (0, 1):
+        assert (zoo / "tiny-mlp-spc" / f"trial{trial}").is_dir()
+        assert (zoo / "tiny-mlp-spc" / f"trial{trial}.json").is_file()
+        result = json.loads(
+            (tmp_path / "tiny-mlp-spc" / f"trial{trial}.json").read_text()
+        )
+        assert result["checkpoint"].endswith(f"trial{trial}")

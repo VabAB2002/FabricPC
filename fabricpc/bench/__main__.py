@@ -2,6 +2,7 @@
 
     python -m fabricpc.bench list
     python -m fabricpc.bench <row-id> [--trials N] [--epochs E] [--out DIR]
+                                      [--resume] [--zoo DIR]
     python -m fabricpc.bench <row-id> --dry-run
     python -m fabricpc.bench compare <row-a> <row-b> [--metric accuracy]
     python -m fabricpc.bench smoke [--floor 0.85]
@@ -10,6 +11,10 @@ Running a row writes one JSON file per trial, a manifest, and (with two or
 more good trials) a summary with the mean and standard error. ``smoke`` is
 the short run CI uses: a small row, two seeds, half an epoch, and a check
 that accuracy is still above a floor.
+
+``--resume`` skips trials that already finished with the same epoch count,
+so a run cut off by a cloud session limit can pick up where it stopped.
+``--zoo DIR`` saves each trial's trained weights there.
 """
 
 import argparse
@@ -18,7 +23,7 @@ import sys
 
 from fabricpc.bench.manifest import describe_row, write_manifest
 from fabricpc.bench.registry import ROWS
-from fabricpc.bench.runner import run_trial, seed_for_trial
+from fabricpc.bench.runner import finished_trial, run_trial, seed_for_trial
 from fabricpc.bench.summary import MIN_TRIALS, compare_rows, summarize_row
 
 SMOKE_ROW = "mnist-mlp-spc"
@@ -40,6 +45,10 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--metric", default="accuracy", help="metric for 'compare'")
     p.add_argument("--row", default=SMOKE_ROW, help="row for 'smoke'")
     p.add_argument("--floor", type=float, default=SMOKE_FLOOR, help="min accuracy")
+    p.add_argument(
+        "--resume", action="store_true", help="skip trials that already finished"
+    )
+    p.add_argument("--zoo", help="save each trial's trained weights in this folder")
     return p
 
 
@@ -52,7 +61,9 @@ def _unknown_row(row_id: str) -> int:
     return 2
 
 
-def _run_row(row, out, *, n_trials, epochs, warmup, timed, command):
+def _run_row(
+    row, out, *, n_trials, epochs, warmup, timed, command, resume=False, zoo=None
+):
     """Run every trial of one row, then summarize. Returns (failed, summary)."""
     write_manifest(
         out,
@@ -60,10 +71,20 @@ def _run_row(row, out, *, n_trials, epochs, warmup, timed, command):
         seeds=[seed_for_trial(t) for t in range(n_trials)],
         command=command,
     )
+    wanted_epochs = epochs if epochs is not None else row.train_config["num_epochs"]
     failed = 0
     for trial in range(n_trials):
+        if resume and finished_trial(out, row.id, trial, wanted_epochs):
+            print(f"{row.id} trial {trial}: already done, skipping")
+            continue
         result = run_trial(
-            row, trial, out, num_epochs=epochs, warmup_steps=warmup, timed_steps=timed
+            row,
+            trial,
+            out,
+            num_epochs=epochs,
+            warmup_steps=warmup,
+            timed_steps=timed,
+            zoo_dir=zoo,
         )
         if result.status == "ok":
             acc = result.metrics.get("accuracy")
@@ -156,6 +177,8 @@ def cmd_run(args, command) -> int:
         warmup=args.warmup,
         timed=args.timed,
         command=command,
+        resume=args.resume,
+        zoo=args.zoo,
     )
     return 1 if failed else 0
 
