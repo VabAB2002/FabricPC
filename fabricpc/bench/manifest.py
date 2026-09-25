@@ -32,7 +32,11 @@ def _package_version(name: str) -> Optional[str]:
 
 
 def _git_sha() -> Optional[str]:
-    """The commit this code came from, or None if we are not in a git repo."""
+    """The commit this code came from, or None if nothing can say.
+
+    Asks git first. A cloud job may run a copy of the code without its .git
+    folder, so the job can pass the commit in ``FABRICPC_GIT_SHA`` instead.
+    """
     try:
         out = subprocess.run(
             ["git", "rev-parse", "HEAD"],
@@ -41,10 +45,17 @@ def _git_sha() -> Optional[str]:
             text=True,
             timeout=5,
         )
+        sha = out.stdout.strip()
+        if out.returncode == 0 and _is_full_sha(sha):
+            return sha
     except (OSError, subprocess.TimeoutExpired):
-        return None
-    sha = out.stdout.strip()
-    return sha if out.returncode == 0 and len(sha) == 40 else None
+        pass
+    sha = os.environ.get("FABRICPC_GIT_SHA", "").strip()
+    return sha if _is_full_sha(sha) else None
+
+
+def _is_full_sha(text: str) -> bool:
+    return len(text) == 40 and all(c in "0123456789abcdef" for c in text)
 
 
 def describe_row(row: BenchmarkRow) -> dict:

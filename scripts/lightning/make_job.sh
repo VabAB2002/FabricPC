@@ -14,6 +14,12 @@
 #   * copies everything (results and weights) to the job's artifacts folder;
 #   * prints the small result files (not the weights) into the log as a
 #     base64 tarball between markers, as a backup. fetch_results.sh reads it.
+#
+# With STUDIO_MODE=1 the job is meant for `lightning job run --studio
+# fabricpc`: it uses the Studio's own checkout and .venv instead of fetching
+# and installing, and writes everything under the Studio folder, in
+# runs/<job name>/. Lightning keeps the files a Studio job changes there as
+# the job's artifacts, so the weights survive; nothing else does.
 set -euo pipefail
 args="$1"
 limit="$2"
@@ -21,6 +27,11 @@ limit="$2"
 commit="$(git -C "$(dirname "$0")" rev-parse --verify "${3:-HEAD}^{commit}")"
 restore="${4:-}"
 
+if [ -n "${STUDIO_MODE:-}" ]; then
+  home=/teamspace/studios/this_studio
+  echo "export FABRICPC_REPO=$home/FabricPC PATH=$home/FabricPC/.venv/bin:\$PATH"
+  echo "export TFDS_SRC=none ART=none OUT=$home/runs/\$LIGHTNING_JOB_NAME"
+fi
 cat <<OUTER
 cat > /tmp/fabricpc_job.sh <<'FABRICPC_JOB'
 #!/bin/bash
@@ -31,6 +42,7 @@ BENCH_ARGS="$args"
 LIMIT=$limit
 COMMIT=$commit
 RESTORE="$restore"
+export FABRICPC_GIT_SHA=$commit
 OUTER
 cat <<'SCRIPT'
 OUT=${OUT:-/tmp/out}
@@ -49,7 +61,9 @@ else
   pip install -q -U pip
   pip install -q -e ".[all,cuda12]" "jax[cuda12]==0.10.2" "optax==0.2.8"
 fi
-git --no-pager log -1 --oneline
+# A Studio job's copy of the code has no .git; the manifest then reads
+# FABRICPC_GIT_SHA.
+git --no-pager log -1 --oneline 2>/dev/null || echo "code at $COMMIT"
 python -c "import jax; print('JAX', jax.__version__, jax.devices())"
 
 # Datasets already on the Drive save a slow download.
@@ -69,8 +83,10 @@ rc=$?
 echo "BENCH EXIT $rc"
 python -m fabricpc.bench validate "$OUT" || true
 
-mkdir -p "$ART" && cp -r "$OUT"/. "$ART"/ && echo "ARTIFACTS COPIED TO $ART" \
-  || echo "ARTIFACTS COPY FAILED"
+if [ "$ART" != none ]; then
+  mkdir -p "$ART" && cp -r "$OUT"/. "$ART"/ && echo "ARTIFACTS COPIED TO $ART" \
+    || echo "ARTIFACTS COPY FAILED"
+fi
 set +x
 echo "=== RESULTS TARBALL"
 tar -czf - --exclude=./zoo -C "$OUT" . | base64 -w 76

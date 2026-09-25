@@ -53,3 +53,21 @@ def test_row_description_includes_the_expected_score():
     assert judged["metric"] == "accuracy"
     assert "Colab T4" in judged["source"]
     assert describe_row(ROWS["cifar10-vgg5-spc"])["reference"] is None
+
+
+def test_git_sha_falls_back_to_the_environment_when_git_cannot_say(monkeypatch):
+    # Cloud jobs can run a copy of the code without its .git folder.
+    from fabricpc.bench import manifest
+
+    def no_git(*args, **kwargs):
+        raise OSError("git is not available")
+
+    monkeypatch.setattr(manifest.subprocess, "run", no_git)
+    monkeypatch.setenv("FABRICPC_GIT_SHA", "a" * 40)
+    assert manifest._git_sha() == "a" * 40
+
+    monkeypatch.setenv("FABRICPC_GIT_SHA", "not-a-sha")
+    assert manifest._git_sha() is None
+
+    monkeypatch.delenv("FABRICPC_GIT_SHA")
+    assert manifest._git_sha() is None
