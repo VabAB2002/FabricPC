@@ -101,14 +101,55 @@ def test_failed_trials_are_left_out_of_the_pairing(tmp_path):
         json.dumps({**json.loads(broken.read_text()), "status": "failed"})
     )
 
-    with pytest.raises(ValueError, match="seed"):
-        # spc now has 2 good trials, backprop 3: they no longer pair up.
-        planned_results(
-            tmp_path,
-            rows=("mnist-mlp-spc", "mnist-mlp-backprop"),
-            contrasts=(),
-            metric="accuracy",
-        )
+    res = planned_results(
+        tmp_path,
+        rows=("mnist-mlp-spc", "mnist-mlp-backprop"),
+        contrasts=(),
+        metric="accuracy",
+    )
+
+    # spc's seed 2000 failed, so only seeds 0 and 1000 pair up.
+    assert res.seeds == [0, 1000]
+    assert list(res.per_arm_metrics("mnist-mlp-backprop")) == [0.91, 0.91]
+
+
+def test_rows_with_more_seeds_are_paired_on_the_shared_ones(tmp_path):
+    # e.g. backprop run with 5 seeds, PC with 3: compare the 3 in common.
+    write_trials(tmp_path, "mnist-mlp-spc", [0.90, 0.92, 0.94])
+    write_trials(
+        tmp_path,
+        "mnist-mlp-backprop",
+        [0.905, 0.93, 0.95, 0.97, 0.99],
+        algorithm="backprop",
+    )
+
+    res = planned_results(
+        tmp_path,
+        rows=("mnist-mlp-spc", "mnist-mlp-backprop"),
+        contrasts=(("mnist-mlp-spc", "mnist-mlp-backprop"),),
+        metric="accuracy",
+    )
+
+    assert res.seeds == [0, 1000, 2000]
+    (c,) = res.contrast_results()
+    assert c.n == 3
+    assert c.mean_diff == pytest.approx((-0.005 - 0.01 - 0.01) / 3)
+
+
+def test_compare_output_lists_the_trials_left_unpaired(tmp_path):
+    write_trials(tmp_path, "mnist-mlp-spc", [0.90, 0.92, 0.94])
+    write_trials(tmp_path, "mnist-mlp-epc", [0.92, 0.93, 0.94], algorithm="epc")
+    write_trials(
+        tmp_path,
+        "mnist-mlp-backprop",
+        [0.91, 0.91, 0.91, 0.91, 0.91],
+        algorithm="backprop",
+    )
+
+    out = compare_family(tmp_path, COMPARISONS["mnist-mlp"], metric="accuracy")
+
+    assert out["seeds"] == [0, 1000, 2000]
+    assert out["unpaired_seeds"] == {"mnist-mlp-backprop": [3000, 4000]}
 
 
 def test_compare_family_writes_all_three_contrasts(tmp_path):

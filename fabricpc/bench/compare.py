@@ -19,7 +19,7 @@ import json
 import math
 from dataclasses import asdict
 from pathlib import Path
-from typing import Dict, Optional, Sequence, Tuple
+from typing import Optional, Sequence, Tuple
 
 from fabricpc.bench.registry import BenchmarkRow, Comparison
 from fabricpc.bench.runner import _TRAINER_ALGORITHM
@@ -59,6 +59,29 @@ def _good_trials(results_dir, row_id: str):
     return [t for t in trials if t.get("status") == "ok"]
 
 
+def _pair_on_shared_seeds(results_dir, rows: Sequence[str]):
+    """Good trials of every row, kept only for seeds that all rows share.
+
+    Returns ``(shared_seeds, trials_by_row, unpaired_by_row)``. Trial i of
+    one row and trial i of another are only a pair if they used the same
+    seed, so a seed missing from any row (never run, or its trial failed)
+    is left out of every row and reported as unpaired.
+    """
+    by_row = {
+        row_id: {t["seed"]: t for t in _good_trials(results_dir, row_id)}
+        for row_id in rows
+    }
+    first = by_row[rows[0]]
+    shared = [s for s in first if all(s in by_row[r] for r in rows)]
+    unpaired = {
+        r: sorted(s for s in by_row[r] if s not in shared)
+        for r in rows
+        if any(s not in shared for s in by_row[r])
+    }
+    trials = {r: [by_row[r][s] for s in shared] for r in rows}
+    return shared, trials, unpaired
+
+
 def planned_results(
     results_dir,
     *,
@@ -68,44 +91,36 @@ def planned_results(
 ) -> PlannedMultiContrastResults:
     """Load finished trials into the framework's results object.
 
-    Refuses rows whose good trials used different seeds: unpaired numbers
-    must not go into a paired test.
+    Pairs on the seeds every row has (see ``_pair_on_shared_seeds``) and
+    refuses when fewer than two seeds are shared: unpaired numbers must not
+    go into a paired test.
     """
-    per_arm: Dict[str, list] = {}
-    seeds = None
-    epochs = 0.0
-    for row_id in rows:
-        good = _good_trials(results_dir, row_id)
-        row_seeds = [t["seed"] for t in good]
-        if seeds is None:
-            seeds = row_seeds
-        elif row_seeds != seeds:
-            raise ValueError(
-                f"cannot pair {row_id} with {rows[0]}: their good trials used "
-                f"different seeds ({row_seeds} vs {seeds})"
-            )
-        per_arm[row_id] = [
+    shared, trials, _ = _pair_on_shared_seeds(results_dir, rows)
+    if len(shared) < MIN_TRIALS:
+        raise ValueError(
+            f"need at least {MIN_TRIALS} seeds that all of {list(rows)} ran "
+            f"successfully, found {len(shared)} ({shared})"
+        )
+    per_arm = {
+        row_id: [
             ArmTrial(
                 metric_value=float(t["metrics"][metric]),
                 train_time=float(t.get("train_time_s", 0.0)),
                 all_metrics=dict(t["metrics"]),
             )
-            for t in good
+            for t in trials[row_id]
         ]
-        epochs = float(good[0].get("num_epochs", 0.0)) if good else epochs
-
-    n = len(seeds or [])
-    if n < MIN_TRIALS:
-        raise ValueError(f"need at least {MIN_TRIALS} paired trials, found {n}")
+        for row_id in rows
+    }
     return PlannedMultiContrastResults(
         arm_names=list(rows),
         contrasts=list(contrasts),
         metric=metric,
-        n_trials=n,
+        n_trials=len(shared),
         per_arm_trials=per_arm,
-        seeds=list(seeds),
+        seeds=list(shared),
         total_time=sum(t.train_time for arm in per_arm.values() for t in arm),
-        num_epochs=epochs,
+        num_epochs=float(trials[rows[0]][0].get("num_epochs", 0.0)),
     )
 
 
@@ -127,6 +142,7 @@ def compare_family(results_dir, comparison: Comparison, *, metric: str) -> dict:
         "metric": metric,
         "seeds": res.seeds,
         "n_trials": res.n_trials,
+        "unpaired_seeds": _pair_on_shared_seeds(results_dir, comparison.rows)[2],
         "num_epochs": res.num_epochs,
         "contrasts": [_plain(asdict(c)) for c in res.contrast_results()],
     }

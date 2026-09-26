@@ -53,3 +53,26 @@ def test_infer_steps_can_be_overridden(rng_key):
     params, structure = build("mnist-mlp-spc", rng_key)
     c = count_compute(params, structure, batch_size=8, algorithm="spc", infer_steps=1)
     assert c.matmuls_per_update == c.matmuls_per_update_backprop
+
+
+def test_fused_conv_pool_nodes_count_the_conv_before_pooling(rng_key):
+    # The fused layout runs exactly the same convolutions as the plain one;
+    # only where the pool sits differs. Their counts must match.
+    from fabricpc.core.inference import InferenceSGD
+    from fabricpc.graph_initialization import initialize_params
+    from fabricpc.models import create_vgg
+
+    counts = []
+    for fuse in (False, True):
+        structure = create_vgg(
+            5,
+            input_shape=(32, 32, 3),
+            num_classes=10,
+            inference=InferenceSGD(eta_infer=0.05, infer_steps=8),
+            fuse_pool=fuse,
+        )
+        params = initialize_params(structure, rng_key)
+        counts.append(count_compute(params, structure, batch_size=128, algorithm="spc"))
+    plain, fused = counts
+    assert fused.flops_per_pass == plain.flops_per_pass
+    assert fused.weighted_edges == plain.weighted_edges

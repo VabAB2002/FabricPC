@@ -56,6 +56,7 @@ def test_run_trial_trains_measures_and_writes_a_json_file(tmp_path, rng_key, alg
     # Both memory numbers are always present (None on a CPU that cannot say).
     assert "memory_bytes" in on_disk
     assert "peak_memory_bytes" in on_disk
+    assert on_disk["step_memory"]["total_bytes"] > 0
 
 
 def test_each_trial_gets_its_own_seed(tmp_path, rng_key):

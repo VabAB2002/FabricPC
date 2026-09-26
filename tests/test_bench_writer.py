@@ -145,3 +145,20 @@ def test_a_missing_or_stale_trials_csv_is_reported(tmp_path):
 
     (row_dir / "trials.csv").unlink()
     assert any("trials.csv" in p for p in validate(tmp_path))
+
+
+def test_trials_csv_and_summary_carry_the_step_memory(tmp_path):
+    row_dir = _write_run(tmp_path)
+    for i in (0, 1):
+        _edit(
+            row_dir / f"trial{i}.json",
+            step_memory={"total_bytes": 1234, "temp_bytes": 1000},
+        )
+    summarize_row(tmp_path, ROW.id)
+    write_trials_csv(tmp_path, ROW.id)
+
+    with open(row_dir / "trials.csv") as f:
+        lines = list(csv.DictReader(f))
+    assert lines[0]["step_memory_bytes"] == "1234"
+    summary = json.loads((row_dir / "summary.json").read_text())
+    assert summary["step_memory"]["total_bytes"] == 1234

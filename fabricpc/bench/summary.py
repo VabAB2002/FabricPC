@@ -56,6 +56,7 @@ class RowSummary:
     compute: Dict[str, float] = field(default_factory=dict)
     n_params: int = 0
     num_epochs: float = 0.0
+    step_memory: Optional[Dict[str, int]] = None  # same for every trial of a row
     band: Optional[Dict[str, object]] = None  # filled in by fabricpc.bench.band
     schema_version: int = SCHEMA_VERSION
 
@@ -89,6 +90,7 @@ def summarize_row(results_dir, row_id: str) -> RowSummary:
         compute=ok[0].get("compute", {}),  # same for every trial of a row
         n_params=ok[0]["n_params"],
         num_epochs=float(ok[0].get("num_epochs", 0.0)),
+        step_memory=ok[0].get("step_memory"),
     )
     write_summary(results_dir, summary)
     return summary

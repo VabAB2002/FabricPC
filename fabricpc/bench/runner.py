@@ -12,7 +12,7 @@ import jax
 
 from fabricpc.bench.compute import count_compute
 from fabricpc.bench.manifest import SCHEMA_VERSION
-from fabricpc.bench.measure import memory_snapshot, time_steps
+from fabricpc.bench.measure import memory_snapshot, step_memory, time_steps
 from fabricpc.bench.registry import BenchmarkRow
 from fabricpc.bench.zoo import save_params
 from fabricpc.training import evaluate, train
@@ -48,7 +48,11 @@ class TrialResult:
     step_time_ms: float = 0.0
     train_time_s: float = 0.0
     memory_bytes: Optional[int] = None  # held after warmup
-    peak_memory_bytes: Optional[int] = None  # most held by the end of the trial
+    # Most held by the end of the trial, process-wide. On GPU this includes
+    # compile scratch space and can be the same for every algorithm; see
+    # step_memory for the compiled training step's own needs.
+    peak_memory_bytes: Optional[int] = None
+    step_memory: Optional[Dict[str, int]] = None
     num_epochs: float = 0.0
     compute: Dict[str, float] = field(default_factory=dict)
     achieved_tflops: float = 0.0  # flops per update / measured step time
@@ -108,6 +112,14 @@ def run_trial(
             timed_steps=timed_steps,
         )
         memory = memory_snapshot().bytes_in_use
+        step_mem = step_memory(
+            params,
+            structure,
+            optimizer,
+            timing_loader,
+            timing_key,
+            algorithm=algorithm,
+        )
         train_loader, test_loader = loaders or row.loader_factory(seed)
 
         compute = count_compute(
@@ -166,6 +178,7 @@ def run_trial(
             train_time_s=train_time_s,
             memory_bytes=memory,
             peak_memory_bytes=peak_memory,
+            step_memory=step_mem,
             num_epochs=epochs,
             compute=asdict(compute),
             achieved_tflops=achieved_tflops,

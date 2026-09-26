@@ -13,7 +13,7 @@ import itertools
 import statistics
 import time
 from dataclasses import dataclass
-from typing import Optional
+from typing import Dict, Optional
 
 import jax
 
@@ -118,3 +118,42 @@ def memory_snapshot() -> MemorySnapshot:
     return MemorySnapshot(
         bytes_in_use=read("bytes_in_use"), peak_bytes=read("peak_bytes_in_use")
     )
+
+
+def step_memory(
+    params, structure, optimizer, loader, rng_key, *, algorithm: str
+) -> Optional[Dict[str, int]]:
+    """Memory one compiled training step needs, as reported by XLA.
+
+    The process-wide peak from ``memory_snapshot`` also counts scratch space
+    used while compiling (on GPU, cuDNN tries several convolution algorithms
+    in temporary buffers), and that depends only on the layer shapes, so it
+    comes out the same for backprop, sPC and ePC. The compiled step's own
+    sizes are what actually differ: its inputs (params, optimizer state,
+    batch), its outputs, and the temporary buffers it needs while running.
+
+    Compiles the step once more, so call it after timing. Returns None when
+    the step cannot be analysed (for example a step that is not jitted).
+    """
+    step = make_train_step(structure, optimizer, algorithm=algorithm)
+    batch = convert_batch(next(iter(loader)))
+    try:
+        compiled = step.lower(params, optimizer.init(params), batch, rng_key).compile()
+        analysis = compiled.memory_analysis()
+    except (AttributeError, NotImplementedError, TypeError):
+        return None
+    if analysis is None:
+        return None
+    sizes = {
+        "argument_bytes": int(analysis.argument_size_in_bytes),
+        "output_bytes": int(analysis.output_size_in_bytes),
+        "temp_bytes": int(analysis.temp_size_in_bytes),
+        "alias_bytes": int(analysis.alias_size_in_bytes),
+    }
+    sizes["total_bytes"] = (
+        sizes["argument_bytes"]
+        + sizes["output_bytes"]
+        + sizes["temp_bytes"]
+        - sizes["alias_bytes"]
+    )
+    return sizes
