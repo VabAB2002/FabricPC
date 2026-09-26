@@ -51,6 +51,20 @@ class Reference:
 
 
 @dataclass(frozen=True)
+class RateControl:
+    """Train a PC row with a rate that follows the settle's stiffness.
+
+    See ``fabricpc.training.InferenceRateController``: every ``every``
+    updates the rate is set so eta_infer * stiffness stays at ``target``,
+    never above the rate the row's solver was built with.
+    """
+
+    target: float
+    every: int = 20
+    window: int = 3
+
+
+@dataclass(frozen=True)
 class BenchmarkRow:
     """Everything needed to run one benchmark row."""
 
@@ -69,6 +83,7 @@ class BenchmarkRow:
     tier: int = 1
     reference: Optional[Reference] = None  # None until a full run sets one
     metric: str = "accuracy"  # the score this row is judged and compared on
+    rate_control: Optional[RateControl] = None  # PC rows: follow the stiffness
 
 
 def _solver_for(algorithm: str):
@@ -247,6 +262,15 @@ _VGG_PEAK_LR = 2.6e-4
 _VGG_WEIGHT_DECAY = 1.2e-5
 _VGG_WARMUP_FRACTION = 0.1
 
+# Adam's epsilon for the deep rows. sPC's error reaches the first layers of
+# VGG-5 and the transformer scaled down by about eta_infer per hop, so their
+# weight gradients are 1e-8 to 1e-10: at the default epsilon of 1e-8 Adam
+# barely moves them (the transformer's embedding stayed frozen under sPC).
+# The gradients point the right way, so a smaller epsilon lets Adam give
+# them normal-sized steps. Backprop's gradients are far above both values,
+# so its runs do not change. All three methods use the same optimizer.
+_DEEP_ADAM_EPS = 1e-12
+
 
 def _vgg_lr_schedule(total_steps: int) -> optax.Schedule:
     return optax.warmup_cosine_decay_schedule(
@@ -273,7 +297,9 @@ def _cifar10_vgg5_family() -> Dict[str, BenchmarkRow]:
             model_factory=_cifar10_vgg5_factory(algo),
             loader_factory=_cifar10_loaders(batch_size),
             optimizer_factory=lambda total_steps: optax.adamw(
-                _vgg_lr_schedule(total_steps), weight_decay=_VGG_WEIGHT_DECAY
+                _vgg_lr_schedule(total_steps),
+                weight_decay=_VGG_WEIGHT_DECAY,
+                eps=_DEEP_ADAM_EPS,
             ),
             train_config={"num_epochs": 50},
             batch_size=batch_size,
@@ -420,7 +446,7 @@ def _tinyshakespeare_transformer_family() -> Dict[str, BenchmarkRow]:
             model_factory=_char_transformer_factory(algo),
             loader_factory=_tinyshakespeare_loaders(c["batch_size"], c["seq_len"]),
             optimizer_factory=lambda total_steps: optax.adam(
-                _char_transformer_lr(total_steps)
+                _char_transformer_lr(total_steps), eps=_DEEP_ADAM_EPS
             ),
             train_config={"num_epochs": c["num_epochs"]},
             batch_size=c["batch_size"],

@@ -145,3 +145,25 @@ def test_each_family_compares_on_its_own_metric():
     assert COMPARISONS["tinyshakespeare-transformer"].metric == "perplexity"
     assert COMPARISONS["cifar10-vgg5"].metric == "accuracy"
     assert COMPARISONS["mnist-mlp"].metric == "accuracy"
+
+
+@pytest.mark.parametrize("family", ["cifar10-vgg5", "tinyshakespeare-transformer"])
+def test_deep_rows_let_adam_scale_up_tiny_pc_gradients(family):
+    # sPC's error reaches the first layers of a deep graph scaled down by
+    # about eta per hop: 1e-8 to 1e-10 on VGG-5 and the transformer. Adam's
+    # default epsilon of 1e-8 would swamp those and freeze the layers, so
+    # these rows use 1e-12: a 1e-10 gradient still gets a normal-sized step.
+    import jax.numpy as jnp
+
+    def last_step(opt, grad):
+        params = {"w": jnp.zeros(4)}
+        state = opt.init(params)
+        for _ in range(200):  # past the warmup, where the rate is not zero
+            updates, state = opt.update({"w": jnp.full(4, grad)}, state, params)
+        return float(jnp.abs(updates["w"]).max())
+
+    for algo in ALGORITHMS:
+        make = ROWS[f"{family}-{algo}"].optimizer_factory
+        tiny = last_step(make(1000), 1e-10)
+        normal = last_step(make(1000), 1e-2)
+        assert tiny > 0.5 * normal, (algo, tiny, normal)

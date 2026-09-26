@@ -236,3 +236,53 @@ def test_backprop_trials_report_forward_scores_equal_to_their_own(tmp_path, rng_
     assert plain
     for name, value in plain.items():
         assert result.metrics[f"forward_{name}"] == value
+
+
+def test_an_epc_row_can_follow_lambda_max(tmp_path, rng_key):
+    # With rate_control set, the trial trains under InferenceRateController and
+    # records what the rate did, so a reader can see the run stayed stable.
+    import dataclasses
+
+    from fabricpc.bench.registry import RateControl
+
+    row = dataclasses.replace(
+        ROWS["mnist-mlp-epc"], rate_control=RateControl(target=0.2, every=1)
+    )
+    result = run_trial(
+        row,
+        0,
+        tmp_path,
+        loaders=fake_mnist_loaders(rng_key),
+        num_epochs=1,
+        warmup_steps=1,
+        timed_steps=2,
+    )
+    assert result.status == "ok", result.error
+    summary = result.rate_control["summary"]
+    assert summary["probes"] == 1 + 3  # at the start, then after each of 3 updates
+    assert summary["target"] == 0.2
+    assert len(result.rate_control["history"]) == summary["probes"]
+    for probe in result.rate_control["history"]:
+        assert probe["eta_after"] * probe["lambda_used"] <= 0.2 + 1e-9
+    # The final regime is read at the rate the run ended on.
+    final_eta = (
+        result.epc_regime["final"]["eta_lambda_max"]
+        / result.epc_regime["final"]["lambda_max"]
+    )
+    assert final_eta == pytest.approx(summary["eta_final"], rel=1e-5)
+
+    on_disk = json.loads((tmp_path / row.id / "trial0.json").read_text())
+    assert on_disk["rate_control"]["summary"]["probes"] == 4
+
+
+def test_rows_without_rate_control_record_none(tmp_path, rng_key):
+    result = run_trial(
+        ROWS["mnist-mlp-epc"],
+        0,
+        tmp_path,
+        loaders=fake_mnist_loaders(rng_key),
+        num_epochs=1,
+        warmup_steps=1,
+        timed_steps=2,
+    )
+    assert result.rate_control is None

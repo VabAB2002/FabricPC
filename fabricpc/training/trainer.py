@@ -434,6 +434,26 @@ def _batch_grads(params, batch, structure, rng_key, *, algorithm):
     return grads, metrics, state
 
 
+def _check_swappable(old: GraphStructure, new: GraphStructure) -> None:
+    """Raise unless ``new`` has the same nodes, shapes, and edges as ``old``.
+
+    A structure returned by ``structure_callback`` keeps training the same
+    params, so only settings (the solver, its rate) may change.
+    """
+    if not isinstance(new, GraphStructure):
+        raise ValueError(
+            f"structure_callback must return a GraphStructure or None, got "
+            f"{type(new).__name__}."
+        )
+    old_shapes = {n: tuple(v.node_info.shape) for n, v in old.nodes.items()}
+    new_shapes = {n: tuple(v.node_info.shape) for n, v in new.nodes.items()}
+    if old_shapes != new_shapes or set(old.edges) != set(new.edges):
+        raise ValueError(
+            "structure_callback returned a structure with different nodes, "
+            "shapes, or edges; it may only change settings such as the solver."
+        )
+
+
 def _make_step(structure, optimizer, *, algorithm, with_state, donate):
     """Build the jitted per-batch step.
 
@@ -517,6 +537,9 @@ def train(
     verbose: bool = True,
     epoch_callback: Optional[Callable[[EpochContext], Any]] = None,
     iter_callback: Optional[Callable[[IterContext], Any]] = None,
+    structure_callback: Optional[
+        Callable[[IterContext], Optional[GraphStructure]]
+    ] = None,
 ) -> TrainResult:
     """Train a FabricPC graph with PC or backprop.
 
@@ -557,6 +580,15 @@ def train(
             forces a per-batch device sync and makes the internal step
             return the batch's GraphState for ``ctx.state``. Exceptions
             propagate.
+        structure_callback: ``(ctx: IterContext) -> Optional[GraphStructure]``,
+            called after each batch (after ``iter_callback``). A non-None
+            return replaces the graph structure from the next batch on, for
+            example the same graph with a different ``eta_infer``
+            (:class:`InferenceRateController`). The new structure must have the
+            same nodes, shapes, and edges; only settings such as the solver
+            may differ. Each distinct structure compiles its step once.
+            Supplying it forces a per-batch device sync. ``ctx.state`` is
+            None unless an ``iter_callback`` is also given.
 
     Returns:
         :class:`TrainResult` — pass ``result.opt_state`` and
@@ -588,6 +620,9 @@ def train(
     step_fn = _make_step(
         structure, optimizer, algorithm=algorithm, with_state=with_state, donate=True
     )
+    # Compiled steps by structure, so going back to a structure seen before
+    # reuses its step. The structure is kept with it so its id stays unique.
+    compiled = {id(structure): (structure, step_fn)}
 
     if "num_epochs" not in config:
         raise ValueError(
@@ -614,7 +649,8 @@ def train(
     total_epochs = full_epochs + (1 if partial_batches > 0 else 0)
     total_batches = full_epochs * num_batches + partial_batches
     progress = _tqdm_cls(total=total_batches, disable=not verbose, leave=True)
-    sync_per_batch = verbose or iter_callback is not None
+    make_ctx = iter_callback is not None or structure_callback is not None
+    sync_per_batch = verbose or make_ctx
     shard_warned = False
 
     step = 0
@@ -675,7 +711,7 @@ def train(
                         epoch=f"{epoch_offset + 1}/{total_epochs}",
                     )
                 stored: Any = float_metrics
-                if iter_callback is not None:
+                if make_ctx:
                     ctx = IterContext(
                         epoch_idx=epoch_idx,
                         batch_idx=batch_idx,
@@ -692,9 +728,28 @@ def train(
                         batch=batch,
                         metrics=float_metrics,
                     )
-                    replaced = iter_callback(ctx)
-                    if replaced is not None:
-                        stored = replaced
+                    if iter_callback is not None:
+                        replaced = iter_callback(ctx)
+                        if replaced is not None:
+                            stored = replaced
+                    if structure_callback is not None:
+                        new_structure = structure_callback(ctx)
+                        if new_structure is not None:
+                            _check_swappable(structure, new_structure)
+                            _validate_algorithm(algorithm, new_structure)
+                            structure = new_structure
+                            if id(structure) not in compiled:
+                                compiled[id(structure)] = (
+                                    structure,
+                                    _make_step(
+                                        structure,
+                                        optimizer,
+                                        algorithm=algorithm,
+                                        with_state=with_state,
+                                        donate=True,
+                                    ),
+                                )
+                            step_fn = compiled[id(structure)][1]
                     del ctx
                 batch_metrics.append(stored)
             else:

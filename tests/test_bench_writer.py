@@ -178,3 +178,28 @@ def test_trials_csv_shows_the_epc_regime_band_after_training(tmp_path):
     assert lines[0]["epc_band"] == "partially relaxed"
     assert float(lines[0]["epc_f_weighted"]) == 0.25
     assert lines[1]["epc_band"] == ""  # not an ePC trial
+
+
+def test_trials_csv_shows_where_a_followed_rate_control_ended(tmp_path):
+    from fabricpc.bench.writer import write_trials_csv
+
+    row_dir = tmp_path / "r"
+    row_dir.mkdir()
+    trial = {
+        "trial": 0,
+        "seed": 0,
+        "status": "ok",
+        "num_epochs": 1.0,
+        "metrics": {"accuracy": 0.9},
+        "rate_control": {
+            "summary": {"eta_final": 0.00125, "crossings": 0, "rate_changes": 4},
+            "history": [],
+        },
+    }
+    (row_dir / "trial0.json").write_text(json.dumps(trial))
+    path = write_trials_csv(tmp_path, "r")
+    import csv
+
+    (line,) = list(csv.DictReader(open(path)))
+    assert float(line["eta_final"]) == 0.00125
+    assert line["rate_crossings"] == "0"

@@ -17,7 +17,8 @@ from fabricpc.bench.manifest import SCHEMA_VERSION
 from fabricpc.bench.measure import epc_regime, memory_snapshot, time_steps
 from fabricpc.bench.registry import BenchmarkRow
 from fabricpc.bench.zoo import save_params
-from fabricpc.training import evaluate, train
+from fabricpc.training import InferenceRateController, evaluate, train
+from fabricpc.training.trainer import build_clamps, convert_batch
 
 # The trainer knows two algorithms. Both PC solvers use "pc"; the solver
 # itself lives inside the graph the row's model factory built.
@@ -64,9 +65,11 @@ class _Curve:
 
     def on_epoch(self, ctx):
         t0 = time.perf_counter()
-        structure, config, key, algorithm = self._args
+        _, config, key, algorithm = self._args
+        # ctx.structure, not the one training started with: a followed ePC
+        # rate changes the structure during the run.
         raw = evaluate(
-            ctx.params, structure, self._batches, config, key, algorithm=algorithm
+            ctx.params, ctx.structure, self._batches, config, key, algorithm=algorithm
         )
         point = {"epoch": int(ctx.epoch_idx) + 1}
         point.update({k: float(v) for k, v in raw.items()})
@@ -122,6 +125,8 @@ class TrialResult:
     curve: Optional[List[Dict[str, float]]] = None
     # ePC rows: EPCInference.regime at init and after training (else None)
     epc_regime: Optional[Dict[str, Dict[str, object]]] = None
+    # Rows with rate_control: the controller's summary and every probe
+    rate_control: Optional[Dict[str, object]] = None
     num_epochs: float = 0.0
     compute: Dict[str, float] = field(default_factory=dict)
     achieved_tflops: float = 0.0  # flops per update / measured step time
@@ -196,12 +201,25 @@ def run_trial(
 
         config = {**row.train_config, "num_epochs": epochs}
         t0 = time.perf_counter()
+        controller = None
+        train_structure = structure
+        if row.rate_control is not None:
+            # The probe batch is the same fixed batch the regime is read on.
+            controller = InferenceRateController(
+                structure,
+                build_clamps(convert_batch(probe_batch), structure, clamp_target=True),
+                target=row.rate_control.target,
+                every=row.rate_control.every,
+                window=row.rate_control.window,
+                key=timing_key,
+            )
+            train_structure = controller.start(params)
         curve = _Curve(
-            structure, test_loader, config, eval_key, algorithm, curve_batches
+            train_structure, test_loader, config, eval_key, algorithm, curve_batches
         )
         trained = train(
             params,
-            structure,
+            train_structure,
             train_loader,
             optimizer,
             config,
@@ -209,9 +227,14 @@ def run_trial(
             algorithm=algorithm,
             verbose=False,
             epoch_callback=curve.on_epoch if curve.enabled else None,
+            structure_callback=controller.on_iter if controller else None,
         )
-        # The curve's evaluations are not training time.
+        # The curve's evaluations are not training time. The rate probes
+        # are: a followed rate costs them on every run.
         train_time_s = time.perf_counter() - t0 - curve.seconds
+        if controller is not None:
+            # Evaluate and read the regime at the rate the run ended on.
+            structure = controller.structure
 
         raw = evaluate(
             trained.params,
@@ -268,6 +291,11 @@ def run_trial(
             peak_memory_bytes=peak_memory,
             step_memory=timing.step_memory,
             epc_regime=regime,
+            rate_control=(
+                None
+                if controller is None
+                else {"summary": controller.summary(), "history": controller.history}
+            ),
             curve=curve.points if curve.enabled else None,
             num_epochs=epochs,
             compute=asdict(compute),

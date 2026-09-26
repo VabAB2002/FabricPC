@@ -208,11 +208,31 @@ eta*T*lambda_max = 1.63 (gradient-weighted relaxed fraction 0.50, fastest mode 0
 
 The lower rate moved the run from near the equilibrium to partially relaxed at the same T. To hold the band, raise T; to report the run, name the band it trained in.
 
-The flags are the local quadratic model's predictions at ε = 0. On a linear-Gaussian graph they are exact. On this perceptron, in a run at a higher rate (not shown), `unstable` fired while the settle still converged, because the curvature of sigmoid layers and a softmax output falls away from ε = 0; on the deep demo the run fell to chance within an epoch of its crossing. When a flag fires on a nonlinear graph, look at the settle's energy per step (`make_inference_history`, [Experiment Tracking](09_experiment_tracking.md)) before deciding. The library detects; it does not control. A rate that follows λ_max is follow-up work (report Section 6.4).
+The flags are the local quadratic model's predictions at ε = 0. On a linear-Gaussian graph they are exact. On this perceptron, in a run at a higher rate (not shown), `unstable` fired while the settle still converged, because the curvature of sigmoid layers and a softmax output falls away from ε = 0; on the deep demo the run fell to chance within an epoch of its crossing. When a flag fires on a nonlinear graph, look at the settle's energy per step (`make_inference_history`, [Experiment Tracking](09_experiment_tracking.md)) before deciding. To have the rate follow λ_max automatically, see the next section.
 
 ### Step 8: Report the run
 
 State the solver or schedule and its (η, T); λ_max at init and at the end with the probe batch size; `str(regime)` at init and at the end; any flag with its update and epoch; and the band by name. A run whose label reads backprop-like is reported as backprop-like.
+
+## A rate that follows λ_max
+
+Lowering η by hand after a flag fires is late: on deep graphs λ_max can pass the bound within tens of updates. It also runs away because of the relaxation itself. At the equilibrium of a linear chain the energy is ½ rᵀS⁻¹r with S = I + JJᵀ (report Section 2.2), so the weights can lower the energy by making J larger instead of by making the residual r smaller. The more a run relaxes, the more its weight updates push λ_max up, and the more it relaxes at a fixed η. `InferenceRateController` breaks that loop: every `every` updates it measures λ_max on a fixed probe batch and sets η to the largest power-of-two fraction of the configured rate with η·λ_max ≤ `target`, using the largest λ_max of the last `window` probes. Holding η·λ_max fixed holds the top mode's relaxed fraction 1 − (1 − target)^T fixed, so the run stays in one regime and never crosses the bound between probes unless λ_max grows by more than 2/target in one interval.
+
+```python
+from fabricpc.training import InferenceRateController
+
+structure = build(EPCInference(eta_infer=0.05, infer_steps=8))  # the largest rate allowed
+controller = InferenceRateController(structure, probe_clamps, target=0.2, every=10, key=probe_key)
+start = controller.start(params)          # measures at init, returns the graph to train
+result = train(params, start, train_loader, optimizer, {"num_epochs": 5}, train_key,
+               verbose=False, structure_callback=controller.on_iter)
+print(controller.summary())               # rates, lambda_max, crossings, final band
+evaluate(result.params, controller.structure, test_loader, {"num_epochs": 1}, probe_key)
+```
+
+`train(..., structure_callback=...)` swaps the graph between batches; each distinct rate compiles its step once. On a 6-layer GELU MLP on MNIST (T = 8), a fixed η = 0.041 crossed the bound within 50 updates and the network died in the first epoch. Following λ_max at `target=0.2`, the run never crossed in 15 epochs, stayed partially relaxed, and matched backprop's accuracy (97–98%), while λ_max rose from 1.4 to about 1,800 and η fell from 0.041 to 1.6e-4. Following λ_max slows its growth; it does not stop it, so a long run ends at a much smaller η than it started. Report the controller's summary with the run.
+
+The same controller works for the state-based solvers. For them the stiffness is `latent_curvature` (`fabricpc.core.latent_curvature`): the largest eigenvalue of the derivative of the solver's own latent gradient, measured by power iteration, and the settle is stable while η times it stays below 2. On the character transformer, `InferenceSGDNormClip` at η = 0.0175 started at a stiffness of 3.7 and ended one epoch at about 35,000 (about 960 for the same graph trained by backprop); the norm clip kept the latents finite while the weight updates turned to noise. A state-based solver carries the output signal one hop per step, scaled by about η each hop, so a much smaller rate also shrinks the early layers' gradients; keep the optimizer's epsilon below them (for Adam, `eps=1e-12` rather than 1e-8).
 
 ## Composing ePC and sPC
 

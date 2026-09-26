@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- `train(..., structure_callback=...)`: swap the graph structure between batches (same nodes, shapes and edges; for example a new ePC rate). Each distinct structure compiles its step once.
+- `InferenceRateController`: an inference rate that follows the settle's stiffness, holding η·stiffness at a target so a run does not cross the stability bound (issue #72). Works for `EPCInference` (λ_max of the error-coordinate Hessian) and the state-based solvers.
+- `latent_curvature` / `make_latent_curvature` (`fabricpc.core.latent_curvature`): the stiffness a state-based settle sees, whose reciprocal bounds its stable rate.
+
 ## [0.6.0] - 2026-09-14
 ePC error-parameterized predictive coding (`EPCInference`) arrives as a drop-in solver alongside composable ePC + sPC inference schedules and first-class cyclic graphs (`graph(..., unroll=U)`); start with `docs/user_guides/17_training_with_epc.md`.
 
