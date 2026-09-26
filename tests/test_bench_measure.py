@@ -97,3 +97,71 @@ def test_step_memory_is_none_when_the_step_cannot_be_analysed(monkeypatch, rng_k
         )
         is None
     )
+
+
+def test_timing_compiles_the_step_once_and_reports_its_memory(monkeypatch, rng_key):
+    # The step is compiled once; timing and the memory report share it.
+    from fabricpc.bench.registry import ROWS
+    from tests.test_bench_runner import fake_mnist_loaders
+
+    lowered = []
+    real = measure.make_train_step
+
+    def counting_make_train_step(*args, **kwargs):
+        step = real(*args, **kwargs)
+
+        class Counted:
+            def lower(self, *a, **k):
+                lowered.append(1)
+                return step.lower(*a, **k)
+
+            def __call__(self, *a, **k):
+                return step(*a, **k)
+
+        return Counted()
+
+    monkeypatch.setattr(measure, "make_train_step", counting_make_train_step)
+    row = ROWS["mnist-mlp-spc"]
+    params, structure = row.model_factory(rng_key)
+    loader, _ = fake_mnist_loaders(rng_key)
+
+    timing = measure.time_steps(
+        params,
+        structure,
+        row.optimizer_factory(10),
+        loader,
+        rng_key,
+        algorithm="pc",
+        warmup_steps=1,
+        timed_steps=2,
+    )
+
+    assert len(lowered) == 1
+    assert timing.step_memory["total_bytes"] > 0
+    assert timing.compile_time_s > 0 and timing.step_time_ms > 0
+
+
+def test_epc_regime_labels_how_pc_like_an_epc_run_is(rng_key):
+    from fabricpc.bench.registry import ROWS
+    from tests.test_bench_runner import fake_mnist_loaders
+
+    loader, _ = fake_mnist_loaders(rng_key)
+    batch = next(iter(loader))
+
+    row = ROWS["mnist-mlp-epc"]
+    params, structure = row.model_factory(rng_key)
+    regime = measure.epc_regime(params, structure, batch, rng_key)
+    assert regime["band"] in (
+        "backprop-like",
+        "partially relaxed",
+        "near PC equilibrium",
+        "no positive curvature",
+    )
+    assert 0.0 <= regime["f_weighted"] <= 1.0
+    assert isinstance(regime["unstable"], bool)
+    assert isinstance(regime["label"], str)
+
+    # Only ePC has a regime; sPC and backprop get None.
+    for algo in ("spc", "backprop"):
+        params, structure = ROWS[f"mnist-mlp-{algo}"].model_factory(rng_key)
+        assert measure.epc_regime(params, structure, batch, rng_key) is None

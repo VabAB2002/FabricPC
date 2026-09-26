@@ -111,3 +111,37 @@ def test_vgg5_rows_use_one_pc_node_per_conv_block(rng_key):
         _, structure = ROWS[f"cifar10-vgg5-{algo}"].model_factory(rng_key)
         assert not [n for n in structure.nodes if n.startswith("pool")]
         assert type(structure.nodes["conv4"]).__name__ == "ConvPoolNode"
+
+
+def test_transformer_rows_match_the_sponsors_tuned_char_demo(rng_key):
+    # examples/transformer_v2_demo.py CHAR_DEFAULTS: norm-clip at 5.0 and
+    # weights drawn from Normal(std=0.01517).
+    from fabricpc.bench import registry
+
+    spc_solver = registry._transformer_solver_for("spc")
+    assert spc_solver.config["max_norm"] == 5.0
+    assert spc_solver.config["infer_steps"] == 12
+    assert spc_solver.config["eta_infer"] == pytest.approx(0.0174852165627398)
+
+    _, structure = ROWS["tinyshakespeare-transformer-spc"].model_factory(rng_key)
+    init = structure.nodes["L0_mha"].node_info.weight_init
+    assert type(init).__name__ == "NormalInitializer"
+    assert init.config["std"] == pytest.approx(0.015166293102182283)
+
+
+def test_transformer_learning_rate_is_a_cosine_decay_to_a_tenth():
+    from fabricpc.bench import registry
+
+    lr = registry._char_transformer_lr(1000)
+    peak = registry._CHAR_TRANSFORMER["lr"]
+    assert float(lr(0)) == pytest.approx(peak)
+    assert float(lr(500)) < peak
+    assert float(lr(1000)) == pytest.approx(0.1 * peak)
+
+
+def test_each_family_compares_on_its_own_metric():
+    from fabricpc.bench.registry import COMPARISONS
+
+    assert COMPARISONS["tinyshakespeare-transformer"].metric == "perplexity"
+    assert COMPARISONS["cifar10-vgg5"].metric == "accuracy"
+    assert COMPARISONS["mnist-mlp"].metric == "accuracy"

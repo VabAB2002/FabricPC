@@ -162,3 +162,19 @@ def test_trials_csv_and_summary_carry_the_step_memory(tmp_path):
     assert lines[0]["step_memory_bytes"] == "1234"
     summary = json.loads((row_dir / "summary.json").read_text())
     assert summary["step_memory"]["total_bytes"] == 1234
+
+
+def test_trials_csv_shows_the_epc_regime_band_after_training(tmp_path):
+    row_dir = _write_run(tmp_path)
+    regime = {
+        "init": {"band": "backprop-like", "f_weighted": 0.01},
+        "final": {"band": "partially relaxed", "f_weighted": 0.25},
+    }
+    _edit(row_dir / "trial0.json", epc_regime=regime)
+    write_trials_csv(tmp_path, ROW.id)
+
+    with open(row_dir / "trials.csv") as f:
+        lines = list(csv.DictReader(f))
+    assert lines[0]["epc_band"] == "partially relaxed"
+    assert float(lines[0]["epc_f_weighted"]) == 0.25
+    assert lines[1]["epc_band"] == ""  # not an ePC trial

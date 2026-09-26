@@ -458,3 +458,29 @@ def test_trials_csv_is_kept_up_to_date_if_a_run_is_cut_off(
     with open(tmp_path / "tiny-mlp-spc" / "trials.csv") as f:
         assert len(f.readlines()) == 2  # header + trial 0
     assert main(["validate", str(tmp_path)]) == 0
+
+
+def test_family_compare_uses_the_familys_metric_unless_told_otherwise(tmp_path, capsys):
+    from tests.test_bench_summary import write_trials
+
+    for algo in ("spc", "epc", "backprop"):
+        write_trials(
+            tmp_path,
+            f"tinyshakespeare-transformer-{algo}",
+            [0.5, 0.52, 0.54],
+            algorithm=algo,
+        )
+        for i in range(3):
+            path = tmp_path / f"tinyshakespeare-transformer-{algo}" / f"trial{i}.json"
+            data = json.loads(path.read_text())
+            wobble = {"spc": (0.3, 0.1, 0.4), "epc": (0.0, 0.2, 0.1)}.get(algo)
+            data["metrics"]["perplexity"] = 12.0 + i + (wobble[i] if wobble else 0.0)
+            path.write_text(json.dumps(data))
+
+    assert main(["compare", "tinyshakespeare-transformer", "--out", str(tmp_path)]) == 0
+
+    out = json.loads(
+        (tmp_path / "compare-tinyshakespeare-transformer.json").read_text()
+    )
+    assert out["metric"] == "perplexity"
+    assert "on perplexity" in capsys.readouterr().out

@@ -1,7 +1,8 @@
-# fabricpc.bench — reproducible benchmark suite and model zoo (DRAFT v0.1)
+# fabricpc.bench — reproducible benchmark suite and model zoo (v0.2)
 
-Status: draft for Team 16 review, then sponsor review. Written 2026-09-23 against FabricPC 0.6.0
-(commit 8406e6a). Resolves issue #59. Authors: Team 16, Penn State Behrend SWENG 480/481
+Status: v0.2, 2026-09-26. Most of the design below is built and tested on branch
+`vishal/bench-skeleton`; see "Status" at the end for what is built, what was measured, and what
+changed from v0.1. Written against FabricPC 0.6.0 (commit 8406e6a). Resolves issue #59. Authors: Team 16, Penn State Behrend SWENG 480/481
 (Tiffany Hart, Harry Maldonado, Victoria Worthington, Vishal Bidari). Mentor: Matthew Behrend.
 
 ## Context
@@ -53,7 +54,7 @@ Depends on: XLA flag profiles (#50) for recording the active profile; model chec
 
 ## Scope: the model zoo
 
-Tiers are proposals. Tier 1 is committed for Fall 2026; Tier 2 for Spring 2027; Tier 3 is stretch.
+Tiers set the order of work, not a deadline: Tier 1 first, then Tier 2, with Tier 3 as stretch.
 
 | Tier | Row family | Dataset | Model | Notes |
 |---|---|---|---|---|
@@ -171,8 +172,8 @@ Modified: `fabricpc/utils/data/dataloader.py` (+`TinyImageNetLoader`), `fabricpc
 4. Comparison runner: subprocess orchestration, paired statistics, `summary.json`, band verdict.
 5. `smoke` command + CI job.
 6. `create_vgg`, `cifar10-vgg5-*` rows; first GPU runs on the sponsor machine.
-7. Wrap ResNet-18 and transformer v2 builders as rows. **Milestone: Tier 1 complete** (target: end of Fall).
-8. `TinyImageNetLoader`, CIFAR-100, VGG-7/9, autoencoder, Hopfield rows (Spring).
+7. Wrap ResNet-18 and transformer v2 builders as rows. **Milestone: Tier 1 complete.**
+8. `TinyImageNetLoader`, CIFAR-100, VGG-7/9, autoencoder, Hopfield rows.
 9. Zoo publication + `18_benchmark_suite.md` + upstream PRs.
 
 ## Test plan
@@ -198,3 +199,48 @@ Demo results block, per CONTRIBUTING: the command that produced every number, th
 | Single-seed numbers leak into a README or slide | Writer refuses to emit aggregates below 2 trials; docs state the rule. |
 | Team over-reaches on the matrix | Tiers; Tier 1 is five families, all with existing builders except VGG-5. |
 | Checkpoint PR #38 changes shape | Zoo writer isolated behind one function; swap when it lands. |
+
+## Status (v0.2, 2026-09-26)
+
+### Built
+
+| Piece | Where | Notes |
+|---|---|---|
+| Rows and families | `registry.py` | 15 Tier 1 rows; each family compares spc vs backprop, epc vs backprop, epc vs spc; each row has a main metric (accuracy, or perplexity for text) |
+| One process per trial | `isolate.py` | parent runs `python -m fabricpc.bench <row> --trial i --in-process`; a child that dies still leaves a failed trial with its exit code and stderr |
+| Timing | `measure.time_steps` | the step is lowered and compiled once (timed on its own), then warmup, then the median of the timed steps with `block_until_ready` |
+| Memory | `measure` | `step_memory` from XLA's memory analysis of the compiled step; `peak_memory_bytes` kept, but on GPU it is set by compile scratch space and is the same for every algorithm |
+| Compute | `compute.py` | per-edge matmul and FLOP count; `ConvPoolNode` convs counted at their unpooled size |
+| Pass/fail band | `band.py` | `|mean − expected| ≤ max(floor, 2·SE)`; only full runs get a verdict; marked pending sponsor sign-off |
+| Comparisons | `compare.py` | finished trials loaded into `PlannedMultiContrastResults`; paired on the seeds all rows share; a test shows a trial here trains exactly what the framework would |
+| Output | `writer.py` | `trial<i>.json`, `trials.csv` (rewritten after every trial), `summary.json`, `manifest.json`, `compare-<family>.json`, all with `schema_version: 2`; `validate` checks a folder |
+| Learning curve | `runner.py` | test metrics on a fixed slice of the test set after every epoch (`--curve-batches`) |
+| ePC regime | `measure.epc_regime` | `EPCInference.regime` at init and after training on ePC rows |
+| Resume, zoo | CLI | `--resume` skips finished trials; `--zoo` saves weights (Orbax), path recorded relative to the results folder |
+| Library additions | `models/vgg.py`, `nodes/convolutional.py`, `utils/data` | `create_vgg` (5/7/9, `fuse_pool`), `ConvPoolNode`, `AugmentedImageLoader` |
+| Cloud runs | `scripts/lightning/` | job builder and fetcher for Lightning AI |
+
+### Changed from v0.1
+
+- **VGG layout.** v0.1 built each block as a `ConvNode` plus a `MaxPool` node. `MaxPool` carries its own latent state, so VGG-5 had eight latent layers against pcx's four, and sPC reached only 37% on CIFAR-10 after 50 epochs with pcx's own hyperparameters. With the pool fused into the conv node (`ConvPoolNode`) the same settings reach 84.4%. The VGG rows use the fused layout.
+- **Seeds.** The runner now splits the seed exactly as `PlannedMultiContrastExperiment` does, and trains on fresh loaders after timing.
+- **Timing and memory.** Compile is timed as lower-and-compile; memory is the compiled step's own needs (see above).
+- **Recipes.** VGG-5 trains with flips and pad-4 crops and a warmup-cosine rate; the transformer rows use the tuned settings of `examples/transformer_v2_demo.py`.
+
+### Measured so far
+
+| Family | Backprop | ePC | sPC | Notes |
+|---|---|---|---|---|
+| `mnist-mlp` (Colab T4, 5 seeds, 20 epochs) | 98.16 | 98.15 | 98.18 | before the seed-split change |
+| `fashionmnist-mlp` (same) | 88.88 | 88.81 | 88.40 | |
+| `cifar10-vgg5` fused (Lightning T4, 50 epochs) | 86.76 ± 0.04 (5 seeds) | 86.80 ± 0.08 (3) | 84.44 ± 0.16 (3) | sPC − BP −2.29 pt, p = 0.002; ePC − BP +0.06 pt, p = 0.20 |
+
+ePC used `EPCInference`'s defaults (η 1e-3, T 5). On the VGG-5 checkpoints its regime is backprop-like at init (f̄ 0.009) and 0.08–0.25 after training, so the VGG-5 result describes default ePC, which is close to backprop, not relaxed PC.
+
+### Open
+
+- Band rule and seed count: sponsor sign-off.
+- ePC at a rate chosen from the spectrum, so that runs are near PC equilibrium, as a separate row or arm.
+- Transformer cost: the char loader makes one sequence per character (about 62,700 steps per epoch at batch 16); decide epochs or a sequence cap before full runs.
+- ResNet-18 sPC (T = 120) needs days of GPU time.
+- Upstream pull requests.

@@ -29,6 +29,8 @@ _TAIL = [
     "memory_bytes",
     "peak_memory_bytes",
     "step_memory_bytes",
+    "epc_band",
+    "epc_f_weighted",
     "n_params",
     "checkpoint",
     "error",
@@ -58,6 +60,9 @@ def write_trials_csv(results_dir, row_id: str) -> Path:
             line = {key: t.get(key) for key in _LEAD + _TAIL}
             line.update(t.get("metrics", {}))
             line["step_memory_bytes"] = (t.get("step_memory") or {}).get("total_bytes")
+            final = (t.get("epc_regime") or {}).get("final") or {}
+            line["epc_band"] = final.get("band")
+            line["epc_f_weighted"] = final.get("f_weighted")
             # The last line of a traceback says what went wrong.
             line["error"] = _last_line(t.get("error"))
             out.writerow(line)

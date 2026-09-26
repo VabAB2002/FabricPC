@@ -68,7 +68,11 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--epochs", type=float, help="override the row's epoch count")
     p.add_argument("--warmup", type=int, default=5, help="untimed steps")
     p.add_argument("--timed", type=int, default=30, help="timed steps")
-    p.add_argument("--metric", default="accuracy", help="metric for 'compare'")
+    p.add_argument(
+        "--metric",
+        help="metric for 'compare' (default: the family's own, e.g. perplexity "
+        "for text models, else accuracy)",
+    )
     p.add_argument("--row", default=SMOKE_ROW, help="row for 'smoke'")
     p.add_argument("--floor", type=float, default=SMOKE_FLOOR, help="min accuracy")
     p.add_argument(
@@ -76,6 +80,12 @@ def _parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--zoo", help="save each trial's trained weights in this folder")
     p.add_argument("--trial", type=int, help="run only this one trial")
+    p.add_argument(
+        "--curve-batches",
+        type=int,
+        help="test batches scored after every epoch for the learning curve "
+        "(default 10; 0 turns the curve off)",
+    )
     p.add_argument(
         "--in-process",
         action="store_true",
@@ -121,9 +131,11 @@ def _run_row(
     resume=False,
     zoo=None,
     in_process=False,
+    curve_batches=None,
 ):
     """Run every trial of one row, then summarize. Returns (failed, summary)."""
     run_one = run_trial if in_process else run_trial_in_child
+    extra = {} if curve_batches is None else {"curve_batches": curve_batches}
     _clear_old_results(out, row.id, keep_trials=range(n_trials) if resume else ())
     write_manifest(
         out,
@@ -145,6 +157,7 @@ def _run_row(
             warmup_steps=warmup,
             timed_steps=timed,
             zoo_dir=zoo,
+            **extra,
         )
         if result.status == "ok":
             acc = result.metrics.get("accuracy")
@@ -206,7 +219,8 @@ def _compare_family(family_id, out, metric) -> int:
 
 def cmd_compare(args) -> int:
     if len(args.rows) == 1 and args.rows[0] in COMPARISONS:
-        return _compare_family(args.rows[0], args.out, args.metric)
+        family = COMPARISONS[args.rows[0]]
+        return _compare_family(family.id, args.out, args.metric or family.metric)
     if len(args.rows) != 2:
         print(
             "usage: compare <row-a> <row-b> | compare <family> [--metric NAME]",
@@ -217,8 +231,9 @@ def cmd_compare(args) -> int:
     for row_id in (row_a, row_b):
         if row_id not in ROWS:
             return _unknown_row(row_id)
-    c = compare_rows(args.out, row_a, row_b, metric=args.metric)
-    _print_contrast(row_a, row_b, args.metric, asdict(c))
+    metric = args.metric or ROWS[row_a].metric
+    c = compare_rows(args.out, row_a, row_b, metric=metric)
+    _print_contrast(row_a, row_b, metric, asdict(c))
     return 0
 
 
@@ -273,6 +288,7 @@ def cmd_one_trial(row, args) -> int:
         warmup_steps=args.warmup,
         timed_steps=args.timed,
         zoo_dir=args.zoo,
+        **({} if args.curve_batches is None else {"curve_batches": args.curve_batches}),
     )
     return 0 if result.status == "ok" else 1
 
@@ -282,7 +298,7 @@ def cmd_family(args, command) -> int:
     family = COMPARISONS[args.target]
     codes = [_run_one_row(ROWS[row_id], args, command) for row_id in family.rows]
     try:
-        _compare_family(family.id, args.out, args.metric)
+        _compare_family(family.id, args.out, args.metric or family.metric)
     except ValueError as e:  # too few good trials to pair
         print(f"{family.id}: no comparison: {e}", file=sys.stderr)
         return 1
@@ -316,6 +332,7 @@ def _run_one_row(row, args, command) -> int:
         resume=args.resume,
         zoo=args.zoo,
         in_process=args.in_process,
+        curve_batches=args.curve_batches,
     )
     band_failed = summary is not None and summary.band["status"] == "fail"
     return 1 if failed or band_failed else 0

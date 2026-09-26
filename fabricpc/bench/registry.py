@@ -68,6 +68,7 @@ class BenchmarkRow:
     n_trials: int = 5
     tier: int = 1
     reference: Optional[Reference] = None  # None until a full run sets one
+    metric: str = "accuracy"  # the score this row is judged and compared on
 
 
 def _solver_for(algorithm: str):
@@ -341,8 +342,10 @@ _CHAR_TRANSFORMER = {
     "batch_size": 16,
     "num_epochs": 5,
     "infer_steps": 12,
-    "lr": 1.21e-4,
-    "eta_infer": 0.0175,
+    "lr": 0.00012108621644524519,
+    "eta_infer": 0.0174852165627398,
+    "weight_init_std": 0.015166293102182283,
+    "max_norm": 5.0,
 }
 
 
@@ -352,7 +355,17 @@ def _transformer_solver_for(algorithm: str):
     return InferenceSGDNormClip(
         eta_infer=_CHAR_TRANSFORMER["eta_infer"],
         infer_steps=_CHAR_TRANSFORMER["infer_steps"],
-        max_norm=1.0,
+        max_norm=_CHAR_TRANSFORMER["max_norm"],
+        latent_decay=0.0,
+    )
+
+
+def _char_transformer_lr(total_steps: int) -> optax.Schedule:
+    """Cosine decay from the tuned rate to a tenth of it, as the demo does."""
+    return optax.cosine_decay_schedule(
+        init_value=_CHAR_TRANSFORMER["lr"],
+        decay_steps=max(1, total_steps),
+        alpha=0.1,
     )
 
 
@@ -367,6 +380,7 @@ def _char_transformer_factory(algorithm: str) -> ModelFactory:
             seq_len=c["seq_len"],
             vocab_size=c["vocab_size"],
             inference=_transformer_solver_for(algorithm),
+            weight_init={"type": "normal", "std": c["weight_init_std"]},
         )
         params = initialize_params(structure, rng_key)
         return params, structure
@@ -390,8 +404,10 @@ def _tinyshakespeare_loaders(batch_size: int, seq_len: int) -> LoaderFactory:
 
 
 def _tinyshakespeare_transformer_family() -> Dict[str, BenchmarkRow]:
-    # Constant learning rate for now; the demo uses a cosine schedule that
-    # needs the loader's length, which the row does not know up front.
+    # The tuned char-level settings of examples/transformer_v2_demo.py
+    # (CHAR_DEFAULTS, val perplexity 12.22 there), including its cosine
+    # learning-rate decay and weight init. Scored on perplexity (lower is
+    # better); accuracy is also recorded.
     rows = {}
     c = _CHAR_TRANSFORMER
     for algo in ALGORITHMS:
@@ -403,9 +419,12 @@ def _tinyshakespeare_transformer_family() -> Dict[str, BenchmarkRow]:
             algorithm=algo,
             model_factory=_char_transformer_factory(algo),
             loader_factory=_tinyshakespeare_loaders(c["batch_size"], c["seq_len"]),
-            optimizer_factory=lambda total_steps: optax.adam(_CHAR_TRANSFORMER["lr"]),
+            optimizer_factory=lambda total_steps: optax.adam(
+                _char_transformer_lr(total_steps)
+            ),
             train_config={"num_epochs": c["num_epochs"]},
             batch_size=c["batch_size"],
+            metric="perplexity",
         )
     return rows
 
@@ -429,6 +448,7 @@ class Comparison:
     id: str
     rows: Tuple[str, ...]
     contrasts: Tuple[Tuple[str, str], ...]
+    metric: str = "accuracy"  # compared on this unless told otherwise
 
 
 def _family_comparison(family: str) -> Comparison:
@@ -438,6 +458,7 @@ def _family_comparison(family: str) -> Comparison:
         rows=(spc, epc, bp),
         # Does PC keep up with backprop, and is ePC better than sPC?
         contrasts=((spc, bp), (epc, bp), (epc, spc)),
+        metric=ROWS[bp].metric if bp in ROWS else "accuracy",
     )
 
 

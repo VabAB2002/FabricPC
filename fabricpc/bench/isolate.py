@@ -35,6 +35,7 @@ def child_command(
     warmup_steps: int = 5,
     timed_steps: int = 30,
     zoo_dir=None,
+    curve_batches: Optional[int] = None,
 ) -> List[str]:
     """The command that runs one trial of one row in a new process."""
     cmd = [sys.executable, "-m", "fabricpc.bench", row_id]
@@ -44,6 +45,8 @@ def child_command(
         cmd += ["--epochs", str(float(num_epochs))]
     if zoo_dir is not None:
         cmd += ["--zoo", str(zoo_dir)]
+    if curve_batches is not None:
+        cmd += ["--curve-batches", str(curve_batches)]
     return cmd
 
 
@@ -56,6 +59,7 @@ def run_trial_in_child(
     warmup_steps: int = 5,
     timed_steps: int = 30,
     zoo_dir=None,
+    curve_batches: Optional[int] = None,
 ) -> TrialResult:
     """Run one trial in a new process and return what it wrote."""
     path = Path(out_dir) / row.id / f"trial{trial}.json"
@@ -70,6 +74,7 @@ def run_trial_in_child(
         warmup_steps=warmup_steps,
         timed_steps=timed_steps,
         zoo_dir=zoo_dir,
+        curve_batches=curve_batches,
     )
     # stdout passes straight through so training progress still shows.
     proc = subprocess.run(cmd, stderr=subprocess.PIPE, text=True)

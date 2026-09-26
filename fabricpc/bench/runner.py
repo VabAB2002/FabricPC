@@ -1,18 +1,20 @@
 """Run one trial of one benchmark row and save the result as JSON."""
 
+import itertools
 import json
 import math
+import os
 import time
 import traceback
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 import jax
 
 from fabricpc.bench.compute import count_compute
 from fabricpc.bench.manifest import SCHEMA_VERSION
-from fabricpc.bench.measure import memory_snapshot, step_memory, time_steps
+from fabricpc.bench.measure import epc_regime, memory_snapshot, time_steps
 from fabricpc.bench.registry import BenchmarkRow
 from fabricpc.bench.zoo import save_params
 from fabricpc.training import evaluate, train
@@ -29,6 +31,49 @@ _TIMING_STREAM = 7
 def total_train_steps(train_loader, num_epochs: float) -> int:
     """Optimizer updates in a run: batches per epoch times epochs, rounded up."""
     return math.ceil(len(train_loader) * float(num_epochs))
+
+
+DEFAULT_CURVE_BATCHES = 10
+
+
+class _BatchList:
+    """A fixed list of batches that iterates the same way every time."""
+
+    def __init__(self, batches):
+        self._batches = list(batches)
+
+    def __iter__(self):
+        return iter(self._batches)
+
+    def __len__(self):
+        return len(self._batches)
+
+
+class _Curve:
+    """Scores the model on a small fixed slice of the test set after every
+    epoch, so a run that learns and then falls apart shows it as it happens
+    (the final score still uses the whole test set)."""
+
+    def __init__(self, structure, test_loader, config, key, algorithm, n_batches):
+        self.enabled = n_batches > 0
+        self.points: List[Dict[str, float]] = []
+        self.seconds = 0.0
+        if self.enabled:
+            self._args = (structure, config, key, algorithm)
+            self._batches = _BatchList(itertools.islice(test_loader, n_batches))
+
+    def on_epoch(self, ctx):
+        t0 = time.perf_counter()
+        structure, config, key, algorithm = self._args
+        raw = evaluate(
+            ctx.params, structure, self._batches, config, key, algorithm=algorithm
+        )
+        point = {"epoch": int(ctx.epoch_idx) + 1}
+        point.update({k: float(v) for k, v in raw.items()})
+        point["train_energy"] = float(ctx.metrics.get("energy", float("nan")))
+        self.points.append(point)
+        self.seconds += time.perf_counter() - t0
+        return None
 
 
 def seed_for_trial(trial: int, seed_offset: int = 0) -> int:
@@ -53,6 +98,11 @@ class TrialResult:
     # step_memory for the compiled training step's own needs.
     peak_memory_bytes: Optional[int] = None
     step_memory: Optional[Dict[str, int]] = None
+    # Test metrics and mean training energy after every epoch, on the first
+    # ``curve_batches`` test batches (None when turned off).
+    curve: Optional[List[Dict[str, float]]] = None
+    # ePC rows: EPCInference.regime at init and after training (else None)
+    epc_regime: Optional[Dict[str, Dict[str, object]]] = None
     num_epochs: float = 0.0
     compute: Dict[str, float] = field(default_factory=dict)
     achieved_tflops: float = 0.0  # flops per update / measured step time
@@ -73,6 +123,7 @@ def run_trial(
     timed_steps: int = 30,
     seed_offset: int = 0,
     zoo_dir=None,
+    curve_batches: int = DEFAULT_CURVE_BATCHES,
 ) -> TrialResult:
     """Train the row's model once, measure it, and write ``trial<i>.json``.
 
@@ -112,14 +163,8 @@ def run_trial(
             timed_steps=timed_steps,
         )
         memory = memory_snapshot().bytes_in_use
-        step_mem = step_memory(
-            params,
-            structure,
-            optimizer,
-            timing_loader,
-            timing_key,
-            algorithm=algorithm,
-        )
+        probe_batch = next(iter(timing_loader))
+        regime_at_init = epc_regime(params, structure, probe_batch, timing_key)
         train_loader, test_loader = loaders or row.loader_factory(seed)
 
         compute = count_compute(
@@ -132,6 +177,9 @@ def run_trial(
 
         config = {**row.train_config, "num_epochs": epochs}
         t0 = time.perf_counter()
+        curve = _Curve(
+            structure, test_loader, config, eval_key, algorithm, curve_batches
+        )
         trained = train(
             params,
             structure,
@@ -141,8 +189,10 @@ def run_trial(
             train_key,
             algorithm=algorithm,
             verbose=False,
+            epoch_callback=curve.on_epoch if curve.enabled else None,
         )
-        train_time_s = time.perf_counter() - t0
+        # The curve's evaluations are not training time.
+        train_time_s = time.perf_counter() - t0 - curve.seconds
 
         raw = evaluate(
             trained.params,
@@ -154,6 +204,12 @@ def run_trial(
         )
         metrics = {k: float(v) for k, v in raw.items()}
         peak_memory = memory_snapshot().peak_bytes
+        regime = None
+        if regime_at_init is not None:
+            regime = {
+                "init": regime_at_init,
+                "final": epc_regime(trained.params, structure, probe_batch, timing_key),
+            }
 
         checkpoint = None
         if zoo_dir is not None:
@@ -164,7 +220,9 @@ def run_trial(
                 trained.params,
                 meta={"seed": seed, "num_epochs": epochs, "metrics": metrics},
             )
-            checkpoint = str(path)
+            # Relative to the results folder, so it still points at the
+            # weights after the folder is copied somewhere else.
+            checkpoint = os.path.relpath(path, out_dir)
 
         result = TrialResult(
             row_id=row.id,
@@ -178,7 +236,9 @@ def run_trial(
             train_time_s=train_time_s,
             memory_bytes=memory,
             peak_memory_bytes=peak_memory,
-            step_memory=step_mem,
+            step_memory=timing.step_memory,
+            epc_regime=regime,
+            curve=curve.points if curve.enabled else None,
             num_epochs=epochs,
             compute=asdict(compute),
             achieved_tflops=achieved_tflops,

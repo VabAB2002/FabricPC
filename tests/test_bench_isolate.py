@@ -23,7 +23,9 @@ def test_child_command_runs_one_trial_of_one_row(tmp_path):
         warmup_steps=4,
         timed_steps=6,
         zoo_dir=tmp_path / "zoo",
+        curve_batches=7,
     )
+    assert cmd[cmd.index("--curve-batches") + 1] == "7"
     assert cmd[:3] == [sys.executable, "-m", "fabricpc.bench"]
     assert cmd[3] == "mnist-mlp-spc"
     assert cmd[cmd.index("--trial") + 1] == "3"
