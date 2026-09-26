@@ -68,6 +68,14 @@ class SkipConnection(NodeBase):
         energy: EnergyFunctional = GaussianEnergy(),
         latent_init: InitializerBase = NormalInitializer(),
     ):
+        # predict() returns the plain sum, so any other activation would be
+        # silently ignored. Better to say so when the graph is built.
+        if not isinstance(activation, IdentityActivation):
+            raise ValueError(
+                f"SkipConnection '{name}' does not apply an activation, got "
+                f"{type(activation).__name__}. Put the activation on a node "
+                "that computes something (e.g. Linear) instead."
+            )
         super().__init__(
             shape=shape,
             name=name,

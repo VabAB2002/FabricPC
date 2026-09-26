@@ -327,8 +327,13 @@ class Mlp2ResidualNode(NodeBase):
     def get_slots():
         return {
             "in": SlotSpec("in", False),
+            # predict() cannot run without the residual input.
             "residual": SlotSpec(
-                "residual", False, is_variance_scalable=False, is_skip_connection=True
+                "residual",
+                False,
+                is_variance_scalable=False,
+                is_skip_connection=True,
+                require_connected=True,
             ),
         }
 
@@ -398,8 +403,14 @@ class MlpResidualNode(NodeBase):
     def get_slots():
         return {
             "in": SlotSpec("in", False),
+            # Without the skip edge the node would not count toward muPC's
+            # residual depth, so it is required rather than defaulting to x.
             "skip": SlotSpec(
-                "skip", False, is_variance_scalable=False, is_skip_connection=True
+                "skip",
+                False,
+                is_variance_scalable=False,
+                is_skip_connection=True,
+                require_connected=True,
             ),
         }
 
@@ -422,8 +433,7 @@ class MlpResidualNode(NodeBase):
     @staticmethod
     def predict(params, inputs, state, node_info):
         x = inputs[next(k for k in inputs if k.endswith(":in"))]
-        skip_key = next((k for k in inputs if k.endswith(":skip")), None)
-        skip = inputs[skip_key] if skip_key else x
+        skip = inputs[next(k for k in inputs if k.endswith(":skip"))]
 
         x_norm = layernorm(x, params.weights["ln_gamma"], params.biases["ln_beta"])
         h = jnp.dot(x_norm, params.weights["W_ff1"]) + params.biases["b_ff1"]

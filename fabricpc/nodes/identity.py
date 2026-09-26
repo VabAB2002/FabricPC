@@ -50,10 +50,19 @@ class IdentityNode(NodeBase):
         Args:
             shape: Output shape tuple (excluding batch dimension)
             name: Node name
-            activation: ActivationBase instance (default: IdentityActivation)
+            activation: must be IdentityActivation (the default); this node
+                returns the plain sum, so anything else is rejected
             energy: EnergyFunctional instance (default: GaussianEnergy)
             latent_init: InitializerBase instance for latent states
         """
+        # predict() returns the plain sum, so any other activation would be
+        # silently ignored. Better to say so when the graph is built.
+        if not isinstance(activation, IdentityActivation):
+            raise ValueError(
+                f"IdentityNode '{name}' does not apply an activation, got "
+                f"{type(activation).__name__}. Put the activation on a node "
+                "that computes something (e.g. Linear) instead."
+            )
         super().__init__(
             shape=shape,
             name=name,

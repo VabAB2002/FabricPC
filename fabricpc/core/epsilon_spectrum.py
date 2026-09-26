@@ -184,9 +184,12 @@ class EpsilonSpectrum(NamedTuple):
 
 
 def weighted_relaxed_fraction(
-    spectrum: EpsilonSpectrum, eta: float, steps: int
+    spectrum: EpsilonSpectrum, eta: float, steps: int, shift: float = 0.0
 ) -> float:
     """f̄ = Σ_{θ_k > 0} w_k·f(θ_k) / Σ_{θ_k > 0} w_k with f(θ) = 1 − (1 − eta·θ)^steps.
+
+    ``shift`` is added to every θ_k first. A solver with latent decay d
+    relaxes each mode as θ_k + d, so ``EPCInference.regime`` passes d here.
 
     The relaxed fraction of the gradient that drives the weight update,
     averaged over the positive-curvature Ritz modes by the weight each
@@ -194,7 +197,7 @@ def weighted_relaxed_fraction(
     out; :attr:`EpsilonSpectrum.negative_weight` and the regime's growth
     factor judge them. Returns ``nan`` when no positive mode carries weight.
     """
-    theta = np.asarray(spectrum.ritz_values, dtype=np.float64)
+    theta = np.asarray(spectrum.ritz_values, dtype=np.float64) + float(shift)
     w = np.asarray(spectrum.ritz_weights, dtype=np.float64)
     positive = theta > 0
     total = float(w[positive].sum())

@@ -55,7 +55,9 @@ class Regime(NamedTuple):
 
     Attributes:
         eta, steps: η and T.
-        eta_lambda_max, eta_T_lambda_max: η·λ_max and η·T·λ_max.
+        eta_lambda_max, eta_T_lambda_max: η·λ_max and η·T·λ_max. With
+            latent decay d every flag and fraction uses λ + d, since that is
+            the rate each mode actually relaxes at.
         unstable: η·λ_max > 2, the top mode's distance grows every step.
         output_gradient_reverses: at unit precision the output residual
             after T steps is r_T = (r/λ)·[1 + (λ − 1)(1 − ηλ)^T] along a mode
@@ -189,12 +191,17 @@ class EPCInference(InferenceBase):
         """
         eta = float(self.config["eta_infer"])
         steps = int(self.config["infer_steps"])
+        # With latent decay d the update is eps <- eps - eta*((H + d)eps + g),
+        # so every mode relaxes (and can blow up) as if its curvature were
+        # theta + d. The measured extremes are still reported as measured.
+        decay = float(self.config.get("latent_decay", 0.0))
         lam_max = float(spectrum.lambda_max)
         lam_min = float(spectrum.lambda_min)
-        x = eta * lam_max
+        top = lam_max + decay
+        x = eta * top
         contraction = (1.0 - x) ** steps
         f_max = 1.0 - contraction
-        f_weighted = weighted_relaxed_fraction(spectrum, eta, steps)
+        f_weighted = weighted_relaxed_fraction(spectrum, eta, steps, shift=decay)
         if math.isnan(f_weighted):
             band = "no positive curvature"
         elif f_weighted < 0.1:
@@ -203,8 +210,8 @@ class EPCInference(InferenceBase):
             band = "near PC equilibrium"
         else:
             band = "partially relaxed"
-        reverses = lam_max > 1.0 and contraction < -1.0 / (lam_max - 1.0)
-        growth_min = (1.0 + eta * max(0.0, -lam_min)) ** steps
+        reverses = top > 1.0 and contraction < -1.0 / (top - 1.0)
+        growth_min = (1.0 + eta * max(0.0, -(lam_min + decay))) ** steps
         return Regime(
             eta=eta,
             steps=steps,
