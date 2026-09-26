@@ -24,6 +24,7 @@ from fabricpc.nodes.transformer_v2 import (
     MhaResidualNode,
     LnMlp1Node,
     Mlp2ResidualNode,
+    MlpResidualNode,
     VocabProjectionNode,
 )
 from fabricpc.nodes.storkey_hopfield import StorkeyHopfield
@@ -52,6 +53,7 @@ __all__ = [
     "MhaResidualNode",
     "LnMlp1Node",
     "Mlp2ResidualNode",
+    "MlpResidualNode",
     "VocabProjectionNode",
     "StorkeyHopfield",
     "SkipConnection",

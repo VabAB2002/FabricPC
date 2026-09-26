@@ -168,3 +168,18 @@ def test_compare_family_writes_all_three_contrasts(tmp_path):
     pairs = [(c["arm_a"], c["arm_b"]) for c in on_disk["contrasts"]]
     assert pairs == list(COMPARISONS["mnist-mlp"].contrasts)
     assert on_disk["contrasts"][2]["mean_diff"] == pytest.approx(0.01)  # epc - spc
+
+
+def test_comparing_on_another_metric_does_not_overwrite_the_main_one(tmp_path):
+    write_trials(tmp_path, "mnist-mlp-spc", [0.90, 0.92, 0.94])
+    write_trials(tmp_path, "mnist-mlp-epc", [0.92, 0.93, 0.95], algorithm="epc")
+    write_trials(
+        tmp_path, "mnist-mlp-backprop", [0.91, 0.915, 0.93], algorithm="backprop"
+    )
+    compare_family(tmp_path, COMPARISONS["mnist-mlp"], metric="accuracy")
+    compare_family(tmp_path, COMPARISONS["mnist-mlp"], metric="energy")
+
+    main = json.loads((tmp_path / "compare-mnist-mlp.json").read_text())
+    other = json.loads((tmp_path / "compare-mnist-mlp-energy.json").read_text())
+    assert main["metric"] == "accuracy"
+    assert other["metric"] == "energy"

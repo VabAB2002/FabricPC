@@ -146,6 +146,9 @@ def compare_family(results_dir, comparison: Comparison, *, metric: str) -> dict:
         "num_epochs": res.num_epochs,
         "contrasts": [_plain(asdict(c)) for c in res.contrast_results()],
     }
-    path = Path(results_dir) / f"compare-{comparison.id}.json"
+    # The family's own metric keeps the plain name; any other metric gets its
+    # own file, so comparing on a second metric never overwrites the first.
+    suffix = "" if metric == comparison.metric else f"-{metric}"
+    path = Path(results_dir) / f"compare-{comparison.id}{suffix}.json"
     path.write_text(json.dumps(out, indent=2))
     return out

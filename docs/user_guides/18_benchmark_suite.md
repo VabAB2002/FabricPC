@@ -43,7 +43,7 @@ Every file carries `schema_version`. Each trial records:
 
 | Field | Meaning |
 |---|---|
-| `metrics` | the task metrics from `evaluate` (accuracy, perplexity, cross-entropy, energy) |
+| `metrics` | the task metrics from `evaluate` (accuracy, perplexity, cross-entropy, energy), plus the same metrics from one plain forward pass as `forward_<name>` (see below) |
 | `step_time_ms` | median of the timed steps, after compile and warmup, each ending in `block_until_ready` |
 | `compile_time_s` | compiling the training step, timed on its own |
 | `train_time_s` | wall-clock for the full training run |
@@ -70,6 +70,10 @@ A full run (the row's own epoch count and seed count) is checked against the row
 
 The floor defaults to half a percentage point of accuracy. A FAIL makes the command exit non-zero. Rows without an expected score, and shortened runs, get no verdict. The rule and the default of 5 seeds are a proposal awaiting the maintainers' sign-off, and every verdict says so.
 
+## Settled scores and forward-pass scores
+
+`evaluate` on a PC graph clamps the input, leaves the output free, and runs full inference. With a cross-entropy output the free output is not at rest where it starts, so inference keeps pushing it and the outputs become over-confident. Accuracy barely moves, but loss and perplexity can look much worse than the weights really are. Every trial therefore also scores the trained weights with one plain forward pass (`evaluate(..., algorithm="backprop")`) and records those numbers as `forward_accuracy`, `forward_perplexity` and so on. On a backprop row they are a copy of the normal ones. To compare the three methods on the same footing, use `compare <family> --metric forward_accuracy` (or `forward_perplexity`).
+
 ## Reading ePC results
 
 With `EPCInference`'s default rate and step count a run can be *backprop-like*: the errors barely relax, and one ePC step from zero error is backprop's activation gradient (see [Training with ePC](17_training_with_epc.md)). ePC rows therefore record the regime label from `EPCInference.regime` on one training batch, at initialization and after training. Read `epc_regime.final.band` before reporting an ePC result as predictive coding.
@@ -84,4 +88,4 @@ Rows live in `fabricpc/bench/registry.py` as frozen `BenchmarkRow`s: a model fac
 
 ## A note on graph layout
 
-How a network is split into PC nodes matters for sPC. On VGG-5, a separate `MaxPool` node after every conv doubles the number of latent layers; sPC then reached 37% on CIFAR-10 after 50 epochs, against 84% with the pool fused into the conv (`ConvPoolNode`, `create_vgg(fuse_pool=True)`). Backprop and ePC were unaffected. The VGG rows use the fused layout.
+How a network is split into PC nodes matters for sPC. On VGG-5, a separate `MaxPool` node after every conv doubles the number of latent layers; sPC then reached 37% on CIFAR-10 after 50 epochs, against 84% with the pool fused into the conv (`ConvPoolNode`, `create_vgg(fuse_pool=True)`). Backprop and ePC were unaffected. The VGG rows use the fused layout. The v2 transformer has the same kind of extra layer: its MLP is two PC nodes, with the wide hidden layer as a latent of its own. `create_deep_transformer(fuse_mlp=True)` builds each MLP as one `MlpResidualNode` (same weights, two latents per block instead of three); the transformer rows do not use it yet.

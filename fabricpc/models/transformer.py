@@ -17,6 +17,7 @@ from fabricpc.nodes import (
     MhaResidualNode,
     LnMlp1Node,
     Mlp2ResidualNode,
+    MlpResidualNode,
     VocabProjectionNode,
     Linear,
 )
@@ -42,6 +43,7 @@ def create_deep_transformer(
     vocab_size: int,
     inference: InferenceBase,
     weight_init: Optional[Dict[str, Any]] = None,
+    fuse_mlp: bool = False,
 ):
     """
     Creates a deep transformer graph using the new class-based builder API.
@@ -54,6 +56,13 @@ def create_deep_transformer(
     muPC scaling is disabled on these two nodes (embedding = discrete lookup,
     output = include_output=False). Changing these without accounting for the
     muPC interaction can cause embedding variance collapse or softmax saturation.
+
+    fuse_mlp=True builds each block's MLP as one MlpResidualNode instead of
+    LnMlp1 -> Mlp2Residual, so the wide hidden layer is not a PC latent (two
+    latents per block instead of three, same weights). The LayerNorm at the
+    start of the fused node undoes muPC's scale on its input, as it already
+    does for the attention node, so under muPC the fused MLP branch is not
+    damped the way the plain Mlp2Residual input is.
     """
     if weight_init is None:
         # Transformer block weights default to std=0.02 (GPT-style); embedding
@@ -108,6 +117,21 @@ def create_deep_transformer(
         # counted toward residual depth L.
         edges.append(Edge(source=previous_residual, target=mha.slot("in")))
         edges.append(Edge(source=previous_residual, target=mha.slot("skip")))
+
+        if fuse_mlp:
+            mlp = MlpResidualNode(
+                name=f"L{i}_mlp",
+                shape=(seq_len, embed_dim),
+                embed_dim=embed_dim,
+                ff_dim=mlp_dim,
+                activation=GeluActivation(),
+                weight_init=w_init_obj,
+            )
+            nodes.append(mlp)
+            edges.append(Edge(source=mha, target=mlp.slot("in")))
+            edges.append(Edge(source=mha, target=mlp.slot("skip")))
+            previous_residual = mlp
+            continue
 
         mlp1 = LnMlp1Node(
             name=f"L{i}_mlp1",

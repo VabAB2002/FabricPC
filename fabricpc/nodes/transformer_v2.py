@@ -349,6 +349,91 @@ class Mlp2ResidualNode(NodeBase):
 
 
 # ==============================================================================
+# FUSED MLP + RESIDUAL NODE
+# ==============================================================================
+
+
+class MlpResidualNode(NodeBase):
+    """The whole MLP half of a block in one node: LnMlp1 then Mlp2Residual.
+
+    z_mu = skip + W_ff2 · act(W_ff1 · LN(x) + b_ff1) + b_ff2
+
+    Same weights and math as the two-node version, but the wide ff_dim hidden
+    layer is no longer a PC latent, so a block has two latents (attention and
+    MLP) instead of three. Each extra latent is one more hop a prediction
+    error has to cross during settling. ``activation`` is the MLP's inner
+    activation, as in LnMlp1Node; the node's output is the residual sum.
+    Wire the previous residual node to both "in" and "skip", like
+    MhaResidualNode.
+    """
+
+    DEFAULT_ENERGY = GaussianEnergy
+    DEFAULT_ACTIVATION = GeluActivation
+
+    def __init__(
+        self,
+        shape,
+        name,
+        embed_dim,
+        ff_dim,
+        activation=GeluActivation(),
+        weight_init=XavierInitializer(),
+        latent_init=NormalInitializer(),
+        energy=GaussianEnergy(),
+        **kwargs,
+    ):
+        super().__init__(
+            shape=shape,
+            name=name,
+            embed_dim=embed_dim,
+            ff_dim=ff_dim,
+            activation=activation,
+            weight_init=weight_init,
+            latent_init=latent_init,
+            energy=energy,
+            **kwargs,
+        )
+
+    @staticmethod
+    def get_slots():
+        return {
+            "in": SlotSpec("in", False),
+            "skip": SlotSpec(
+                "skip", False, is_variance_scalable=False, is_skip_connection=True
+            ),
+        }
+
+    @staticmethod
+    def initialize_params(key, node_shape, input_shapes, weight_init, config):
+        embed_dim, ff_dim = config["embed_dim"], config["ff_dim"]
+        k1, k2 = jax.random.split(key)
+        weights = {
+            "ln_gamma": jnp.ones((embed_dim,)),
+            "W_ff1": initialize(k1, (embed_dim, ff_dim), weight_init),
+            "W_ff2": initialize(k2, (ff_dim, embed_dim), weight_init),
+        }
+        biases = {
+            "ln_beta": jnp.zeros((embed_dim,)),
+            "b_ff1": jnp.zeros((ff_dim,)),
+            "b_ff2": jnp.zeros((embed_dim,)),
+        }
+        return NodeParams(weights, biases)
+
+    @staticmethod
+    def predict(params, inputs, state, node_info):
+        x = inputs[next(k for k in inputs if k.endswith(":in"))]
+        skip_key = next((k for k in inputs if k.endswith(":skip")), None)
+        skip = inputs[skip_key] if skip_key else x
+
+        x_norm = layernorm(x, params.weights["ln_gamma"], params.biases["ln_beta"])
+        h = jnp.dot(x_norm, params.weights["W_ff1"]) + params.biases["b_ff1"]
+        act_obj = node_info.activation
+        h = type(act_obj).forward(h, act_obj.config)
+        mlp = jnp.dot(h, params.weights["W_ff2"]) + params.biases["b_ff2"]
+        return skip + mlp, None
+
+
+# ==============================================================================
 # VOCAB PROJECTION NODE
 # ==============================================================================
 

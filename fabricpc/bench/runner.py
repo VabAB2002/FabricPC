@@ -76,6 +76,25 @@ class _Curve:
         return None
 
 
+FORWARD_PREFIX = "forward_"
+
+
+def _forward_metrics(params, structure, test_loader, config, key, algorithm, metrics):
+    """The trained model scored with one plain forward pass, as forward_<name>.
+
+    PC evaluation leaves the output free and lets it keep settling. With a
+    cross-entropy output that pushes the outputs to be over-confident, so a
+    PC row's loss and perplexity can look worse than the weights really are.
+    The forward pass is how the model is used after training, and it scores
+    every method the same way. For backprop the normal evaluation already is
+    the forward pass, so its numbers are just copied.
+    """
+    if algorithm == "backprop":
+        return {FORWARD_PREFIX + k: v for k, v in metrics.items()}
+    raw = evaluate(params, structure, test_loader, config, key, algorithm="backprop")
+    return {FORWARD_PREFIX + k: float(v) for k, v in raw.items()}
+
+
 def seed_for_trial(trial: int, seed_offset: int = 0) -> int:
     """Same rule as PlannedMultiContrastExperiment, so arms line up."""
     return seed_offset + trial * 1000
@@ -203,6 +222,17 @@ def run_trial(
             algorithm=algorithm,
         )
         metrics = {k: float(v) for k, v in raw.items()}
+        metrics.update(
+            _forward_metrics(
+                trained.params,
+                structure,
+                test_loader,
+                config,
+                eval_key,
+                algorithm,
+                metrics,
+            )
+        )
         peak_memory = memory_snapshot().peak_bytes
         regime = None
         if regime_at_init is not None:

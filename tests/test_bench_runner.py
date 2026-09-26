@@ -178,3 +178,61 @@ def test_curve_batches_zero_turns_the_curve_off(tmp_path, rng_key):
         curve_batches=0,
     )
     assert result.curve is None
+
+
+def test_pc_trials_also_score_the_trained_model_with_a_plain_forward_pass(
+    tmp_path, rng_key
+):
+    # PC evaluation lets the free output keep settling, which can make it
+    # over-confident. So PC rows also report the one-pass score, under
+    # forward_<name>, computed from the same trained weights.
+    from fabricpc.bench.zoo import load_params
+    from fabricpc.training import evaluate
+
+    row = ROWS["mnist-mlp-spc"]
+    loaders = fake_mnist_loaders(rng_key)
+    zoo = tmp_path / "zoo"
+    result = run_trial(
+        row,
+        0,
+        tmp_path,
+        loaders=loaders,
+        num_epochs=1,
+        warmup_steps=1,
+        timed_steps=2,
+        zoo_dir=zoo,
+    )
+
+    params, structure = load_params(zoo, row, 0)
+    _, test_loader = loaders
+    config = {**row.train_config, "num_epochs": 1.0}
+    master_key = jax.random.PRNGKey(result.seed)
+    _, _, eval_key = jax.random.split(master_key, 3)
+    forward = evaluate(
+        params, structure, test_loader, config, eval_key, algorithm="backprop"
+    )
+
+    assert "accuracy" in result.metrics and "energy" in result.metrics
+    for name, value in forward.items():
+        assert result.metrics[f"forward_{name}"] == pytest.approx(float(value))
+    # A forward pass has no settling, so no PC energy to report.
+    assert "forward_energy" not in result.metrics
+
+
+def test_backprop_trials_report_forward_scores_equal_to_their_own(tmp_path, rng_key):
+    # Backprop's evaluation already is the forward pass, so its forward_*
+    # numbers are just a copy. Having them on every row lets a family be
+    # compared on forward_accuracy across all three methods.
+    result = run_trial(
+        ROWS["mnist-mlp-backprop"],
+        0,
+        tmp_path,
+        loaders=fake_mnist_loaders(rng_key),
+        num_epochs=1,
+        warmup_steps=1,
+        timed_steps=2,
+    )
+    plain = {k: v for k, v in result.metrics.items() if not k.startswith("forward_")}
+    assert plain
+    for name, value in plain.items():
+        assert result.metrics[f"forward_{name}"] == value

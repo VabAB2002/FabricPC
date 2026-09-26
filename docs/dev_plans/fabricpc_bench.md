@@ -217,7 +217,7 @@ Demo results block, per CONTRIBUTING: the command that produced every number, th
 | Learning curve | `runner.py` | test metrics on a fixed slice of the test set after every epoch (`--curve-batches`) |
 | ePC regime | `measure.epc_regime` | `EPCInference.regime` at init and after training on ePC rows |
 | Resume, zoo | CLI | `--resume` skips finished trials; `--zoo` saves weights (Orbax), path recorded relative to the results folder |
-| Library additions | `models/vgg.py`, `nodes/convolutional.py`, `utils/data` | `create_vgg` (5/7/9, `fuse_pool`), `ConvPoolNode`, `AugmentedImageLoader` |
+| Library additions | `models/vgg.py`, `models/transformer.py`, `nodes/convolutional.py`, `nodes/transformer_v2.py`, `utils/data` | `create_vgg` (5/7/9, `fuse_pool`), `ConvPoolNode`, `AugmentedImageLoader`, `create_deep_transformer(fuse_mlp=True)` with `MlpResidualNode` |
 | Cloud runs | `scripts/lightning/` | job builder and fetcher for Lightning AI |
 
 ### Changed from v0.1
