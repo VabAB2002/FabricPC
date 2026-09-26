@@ -44,6 +44,7 @@ def create_deep_transformer(
     inference: InferenceBase,
     weight_init: Optional[Dict[str, Any]] = None,
     fuse_mlp: bool = False,
+    use_mupc: bool = True,
 ):
     """
     Creates a deep transformer graph using the new class-based builder API.
@@ -63,6 +64,10 @@ def create_deep_transformer(
     start of the fused node undoes muPC's scale on its input, as it already
     does for the attention node, so under muPC the fused MLP branch is not
     damped the way the plain Mlp2Residual input is.
+
+    use_mupc=False builds the graph without muPC scaling, so the weight init
+    alone sets the scale. With muPC on, a small GPT-style init (std 0.02) is
+    scaled down a second time, which leaves the MLP branch very weak.
     """
     if weight_init is None:
         # Transformer block weights default to std=0.02 (GPT-style); embedding
@@ -179,6 +184,6 @@ def create_deep_transformer(
         edges=edges,
         task_map=TaskMap(x=input_node, y=logits),
         inference=inference,
-        scaling=MuPCConfig(include_output=False),
+        scaling=MuPCConfig(include_output=False) if use_mupc else None,
         graph_state_initializer=FeedforwardStateInit(),
     )

@@ -131,3 +131,22 @@ def test_fused_transformer_takes_one_training_step(algorithm):
     before = params.nodes["L0_mlp"].weights["W_ff1"]
     after = new_params.nodes["L0_mlp"].weights["W_ff1"]
     assert not jnp.allclose(before, after)
+
+
+def test_mupc_can_be_turned_off():
+    # With muPC on, the 0.02-style init is scaled down a second time; turning
+    # it off lets the init alone set the scale (sponsor issue #16).
+    structure = create_deep_transformer(
+        depth=1,
+        embed_dim=EMBED,
+        num_heads=2,
+        mlp_dim=FF,
+        seq_len=SEQ,
+        vocab_size=VOCAB,
+        inference=InferenceSGDNormClip(eta_infer=0.1, infer_steps=3, max_norm=5.0),
+        fuse_mlp=True,
+        use_mupc=False,
+    )
+    assert all(n.node_info.scaling_config is None for n in structure.nodes.values())
+    _, with_mupc = _build(depth=1, fuse_mlp=True)
+    assert with_mupc.nodes["L0_mlp"].node_info.scaling_config is not None
