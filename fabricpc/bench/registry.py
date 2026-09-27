@@ -13,6 +13,7 @@ import optax
 
 from fabricpc.core.activations import (
     GeluActivation,
+    ReLUActivation,
     SigmoidActivation,
     SoftmaxActivation,
 )
@@ -26,6 +27,7 @@ from fabricpc.graph_assembly import TaskMap, graph
 from fabricpc.graph_initialization import initialize_params
 from fabricpc.models import build_resnet18, create_deep_transformer, create_vgg
 from fabricpc.nodes import IdentityNode, Linear
+from fabricpc.training import metrics as training_metrics
 
 # The three ways we can train the same graph.
 ALGORITHMS: Tuple[str, ...] = ("spc", "epc", "backprop")
@@ -84,6 +86,20 @@ class BenchmarkRow:
     reference: Optional[Reference] = None  # None until a full run sets one
     metric: str = "accuracy"  # the score this row is judged and compared on
     rate_control: Optional[RateControl] = None  # PC rows: follow the stiffness
+    # Scores to evaluate instead of evaluate()'s defaults, for rows that are
+    # not classifiers. PC rows also get the settled energy.
+    eval_metrics: Optional[Mapping[str, training_metrics.EvalMetric]] = None
+
+    def metrics_for(self, trainer_algorithm: str):
+        """What to pass as ``evaluate(..., metrics=)``: None means its
+        defaults. ``trainer_algorithm`` is the trainer's ("pc" or
+        "backprop"); PC evaluations also report the settled energy."""
+        if self.eval_metrics is None:
+            return None
+        chosen = dict(self.eval_metrics)
+        if trainer_algorithm == "pc":
+            chosen["energy"] = training_metrics.internal_energy
+        return chosen
 
 
 def _solver_for(algorithm: str):
@@ -455,12 +471,124 @@ def _tinyshakespeare_transformer_family() -> Dict[str, BenchmarkRow]:
     return rows
 
 
+def _mnist_autoencoder_factory(algorithm: str) -> ModelFactory:
+    """784 -> 128 -> 32 -> 128 -> 784, ReLU inside, sigmoid out.
+
+    The pixels are in [0, 1] and the output node's Gaussian energy is the
+    squared reconstruction error, so backprop minimizes MSE and PC settles
+    on the same quantity.
+    """
+
+    def build(rng_key: jax.Array):
+        pixels = IdentityNode(shape=(784,), name="pixels")
+        sizes = (("enc", 128), ("code", 32), ("dec", 128))
+        hidden = [
+            Linear(
+                shape=(size,),
+                activation=ReLUActivation(),
+                name=name,
+                weight_init=XavierInitializer(),
+            )
+            for name, size in sizes
+        ]
+        recon = Linear(
+            shape=(784,),
+            activation=SigmoidActivation(),
+            name="recon",
+            weight_init=XavierInitializer(),
+        )
+        chain = [pixels, *hidden, recon]
+        structure = graph(
+            nodes=chain,
+            edges=[
+                Edge(source=a, target=b.slot("in")) for a, b in zip(chain, chain[1:])
+            ],
+            task_map=TaskMap(x=pixels, y=recon),
+            inference=_solver_for(algorithm),
+        )
+        return initialize_params(structure, rng_key), structure
+
+    return build
+
+
+class _AsReconstruction:
+    """Wraps an (image, label) loader so each batch is (image, image)."""
+
+    def __init__(self, loader):
+        self._loader = loader
+
+    def __iter__(self):
+        for batch in self._loader:
+            yield batch[0], batch[0]
+
+    def __len__(self):
+        return len(self._loader)
+
+
+def _mnist_reconstruction_loaders(batch_size: int) -> LoaderFactory:
+    """MNIST with pixels left in [0, 1] (no mean/std normalization), so the
+    sigmoid output can match them."""
+
+    def build(seed: int):
+        from fabricpc.utils.data import dataloader
+
+        def make(split, shuffle):
+            return _AsReconstruction(
+                dataloader.MnistLoader(
+                    split,
+                    batch_size=batch_size,
+                    tensor_format="flat",
+                    shuffle=shuffle,
+                    seed=seed,
+                    normalize_mean=0.0,
+                    normalize_std=1.0,
+                )
+            )
+
+        return make("train", True), make("test", False)
+
+    return build
+
+
+def _mnist_autoencoder_family() -> Dict[str, BenchmarkRow]:
+    """The faculty advisor's story: an autoencoder under backprop and PC,
+    compared on reconstruction and hidden sparsity rather than accuracy."""
+    from fabricpc.bench.metrics import reconstruction_mse, sparsity
+
+    scores = {
+        "reconstruction_mse": reconstruction_mse,
+        "code_sparsity": sparsity(("code",)),
+        "hidden_sparsity": sparsity(("enc", "code", "dec")),
+        "target_energy": training_metrics.target_energy,
+    }
+    rows = {}
+    batch_size = 200
+    for algo in ALGORITHMS:
+        row_id = f"mnist-autoencoder-{algo}"
+        rows[row_id] = BenchmarkRow(
+            id=row_id,
+            dataset="mnist",
+            model="autoencoder",
+            algorithm=algo,
+            model_factory=_mnist_autoencoder_factory(algo),
+            loader_factory=_mnist_reconstruction_loaders(batch_size),
+            optimizer_factory=lambda total_steps: optax.adam(1e-3),
+            train_config={"num_epochs": 20},
+            batch_size=batch_size,
+            tier=2,
+            metric="reconstruction_mse",
+            eval_metrics=scores,
+        )
+    return rows
+
+
 ROWS: Dict[str, BenchmarkRow] = {}
 ROWS.update(_mlp_family("mnist"))
 ROWS.update(_mlp_family("fashionmnist"))
 ROWS.update(_cifar10_vgg5_family())
 ROWS.update(_cifar10_resnet18_family())
 ROWS.update(_tinyshakespeare_transformer_family())
+ROWS.update(_mnist_autoencoder_family())
 
 
 @dataclass(frozen=True)

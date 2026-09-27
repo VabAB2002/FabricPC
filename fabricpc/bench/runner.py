@@ -56,10 +56,13 @@ class _Curve:
     epoch, so a run that learns and then falls apart shows it as it happens
     (the final score still uses the whole test set)."""
 
-    def __init__(self, structure, test_loader, config, key, algorithm, n_batches):
+    def __init__(
+        self, structure, test_loader, config, key, algorithm, n_batches, metrics=None
+    ):
         self.enabled = n_batches > 0
         self.points: List[Dict[str, float]] = []
         self.seconds = 0.0
+        self._metrics = metrics
         if self.enabled:
             self._args = (structure, config, key, algorithm)
             self._batches = _BatchList(itertools.islice(test_loader, n_batches))
@@ -70,7 +73,13 @@ class _Curve:
         # ctx.structure, not the one training started with: a followed ePC
         # rate changes the structure during the run.
         raw = evaluate(
-            ctx.params, ctx.structure, self._batches, config, key, algorithm=algorithm
+            ctx.params,
+            ctx.structure,
+            self._batches,
+            config,
+            key,
+            algorithm=algorithm,
+            metrics=self._metrics,
         )
         point = {"epoch": int(ctx.epoch_idx) + 1}
         point.update({k: float(v) for k, v in raw.items()})
@@ -83,7 +92,9 @@ class _Curve:
 FORWARD_PREFIX = "forward_"
 
 
-def _forward_metrics(params, structure, test_loader, config, key, algorithm, metrics):
+def _forward_metrics(
+    params, structure, test_loader, config, key, algorithm, metrics, scores=None
+):
     """The trained model scored with one plain forward pass, as forward_<name>.
 
     PC evaluation leaves the output free and lets it keep settling. With a
@@ -95,7 +106,15 @@ def _forward_metrics(params, structure, test_loader, config, key, algorithm, met
     """
     if algorithm == "backprop":
         return {FORWARD_PREFIX + k: v for k, v in metrics.items()}
-    raw = evaluate(params, structure, test_loader, config, key, algorithm="backprop")
+    raw = evaluate(
+        params,
+        structure,
+        test_loader,
+        config,
+        key,
+        algorithm="backprop",
+        metrics=scores,
+    )
     return {FORWARD_PREFIX + k: float(v) for k, v in raw.items()}
 
 
@@ -225,7 +244,13 @@ def run_trial(
             )
             train_structure = controller.start(params)
         curve = _Curve(
-            train_structure, test_loader, config, eval_key, algorithm, curve_batches
+            train_structure,
+            test_loader,
+            config,
+            eval_key,
+            algorithm,
+            curve_batches,
+            metrics=row.metrics_for(algorithm),
         )
         trained = train(
             params,
@@ -253,6 +278,7 @@ def run_trial(
             config,
             eval_key,
             algorithm=algorithm,
+            metrics=row.metrics_for(algorithm),
         )
         metrics = {k: float(v) for k, v in raw.items()}
         metrics.update(
@@ -264,6 +290,7 @@ def run_trial(
                 eval_key,
                 algorithm,
                 metrics,
+                scores=row.metrics_for("backprop"),
             )
         )
         peak_memory = memory_snapshot().peak_bytes

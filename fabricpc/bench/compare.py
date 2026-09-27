@@ -44,7 +44,9 @@ def arm_for_row(
         name=row.id,
         model_factory=row.model_factory,
         train_fn=functools.partial(train, algorithm=algorithm),
-        eval_fn=functools.partial(evaluate, algorithm=algorithm),
+        eval_fn=functools.partial(
+            evaluate, algorithm=algorithm, metrics=row.metrics_for(algorithm)
+        ),
         optimizer=row.optimizer_factory(math.ceil(steps_per_epoch * float(epochs))),
         train_config={**row.train_config, "num_epochs": float(epochs)},
     )
