@@ -14,6 +14,7 @@ import jax
 
 from fabricpc.bench.compute import count_compute
 from fabricpc.bench.manifest import SCHEMA_VERSION
+from fabricpc.bench.diagnostics import diagnose
 from fabricpc.bench.measure import epc_regime, memory_snapshot, time_steps
 from fabricpc.bench.registry import BenchmarkRow
 from fabricpc.bench.zoo import save_params
@@ -123,6 +124,9 @@ class TrialResult:
     # Test metrics and mean training energy after every epoch, on the first
     # ``curve_batches`` test batches (None when turned off).
     curve: Optional[List[Dict[str, float]]] = None
+    # Backprop alignment and stiffness at init and after training
+    # (fabricpc.bench.diagnostics); None when turned off.
+    diagnostics: Optional[Dict[str, Dict[str, object]]] = None
     # ePC rows: EPCInference.regime at init and after training (else None)
     epc_regime: Optional[Dict[str, Dict[str, object]]] = None
     # Rows with rate_control: the controller's summary and every probe
@@ -148,6 +152,7 @@ def run_trial(
     seed_offset: int = 0,
     zoo_dir=None,
     curve_batches: int = DEFAULT_CURVE_BATCHES,
+    diagnostics: bool = True,
 ) -> TrialResult:
     """Train the row's model once, measure it, and write ``trial<i>.json``.
 
@@ -189,6 +194,11 @@ def run_trial(
         memory = memory_snapshot().bytes_in_use
         probe_batch = next(iter(timing_loader))
         regime_at_init = epc_regime(params, structure, probe_batch, timing_key)
+        diag_init = (
+            diagnose(params, structure, probe_batch, timing_key, row.algorithm)
+            if diagnostics
+            else None
+        )
         train_loader, test_loader = loaders or row.loader_factory(seed)
 
         compute = count_compute(
@@ -291,6 +301,20 @@ def run_trial(
             peak_memory_bytes=peak_memory,
             step_memory=timing.step_memory,
             epc_regime=regime,
+            diagnostics=(
+                None
+                if diag_init is None
+                else {
+                    "init": diag_init,
+                    "final": diagnose(
+                        trained.params,
+                        structure,
+                        probe_batch,
+                        timing_key,
+                        row.algorithm,
+                    ),
+                }
+            ),
             rate_control=(
                 None
                 if controller is None

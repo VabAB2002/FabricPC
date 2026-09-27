@@ -53,6 +53,7 @@ Every file carries `schema_version`. Each trial records:
 | `achieved_tflops` | FLOPs per update divided by the measured step time |
 | `epc_regime` | ePC rows only: the regime label at the start and end of training (see below) |
 | `checkpoint` | where the trained weights were saved, with `--zoo` |
+| `diagnostics` | at init and after training: `backprop_alignment` (PC rows: per layer, the cosine between PC's weight update and backprop's on one batch, the size ratio, and the weakest layer) and `stiffness` (every row: λ_max of the error-coordinate Hessian; sPC rows also η times the stiffness their settle sees, stable below 2). See below |
 
 ## Seeds, pairing and comparisons
 
@@ -79,6 +80,10 @@ The floor defaults to half a percentage point of accuracy. A FAIL makes the comm
 With `EPCInference`'s default rate and step count a run can be *backprop-like*: the errors barely relax, and one ePC step from zero error is backprop's activation gradient (see [Training with ePC](17_training_with_epc.md)). ePC rows therefore record the regime label from `EPCInference.regime` on one training batch, at initialization and after training. Read `epc_regime.final.band` before reporting an ePC result as predictive coding.
 
 A PC row (sPC or ePC) can instead train with a rate that follows the settle's stiffness: set `rate_control=RateControl(target=..., every=...)` on the row (`fabricpc.bench.registry`). The trial then records `rate_control` (the `InferenceRateController` summary and every probe), trials.csv adds `eta_final` and `rate_crossings`, and the final score and regime are read at the rate the run ended on.
+
+## Reading the diagnostics
+
+Two numbers say what a PC score means. `backprop_alignment.mean_cos` near 1 says the run learned in backprop's direction: default ePC on VGG-5 reads 1.00, so its accuracy is backprop's reached another way. Lower values say the run learned something else, and `weakest` names the layer furthest off; on VGG-5, sPC reads 0.90 with the output layer at 0.85. Settled PC can lower its energy by making the network stiffer rather than more accurate, and `stiffness.lambda_max` is where that shows, comparable across the three methods because it depends on the weights alone: on VGG-5 about 6.5 at init, 36 after backprop, 53 after default ePC, 143 after sPC. For sPC rows, `eta_times_settle_stiffness` above 2 means the settle diverges; on the character transformer it reached about 650 after one epoch. trials.csv shows `stiffness_init`, `stiffness_final`, `bp_cos_min`, `bp_cos_mean`, and `bp_cos_weakest`. `run_trial(..., diagnostics=False)` skips both.
 
 ## Running on a GPU in the cloud
 

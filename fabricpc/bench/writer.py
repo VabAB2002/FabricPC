@@ -33,6 +33,11 @@ _TAIL = [
     "epc_f_weighted",
     "eta_final",
     "rate_crossings",
+    "stiffness_init",
+    "stiffness_final",
+    "bp_cos_min",
+    "bp_cos_mean",
+    "bp_cos_weakest",
     "n_params",
     "checkpoint",
     "error",
@@ -68,6 +73,14 @@ def write_trials_csv(results_dir, row_id: str) -> Path:
             rate = (t.get("rate_control") or {}).get("summary") or {}
             line["eta_final"] = rate.get("eta_final")
             line["rate_crossings"] = rate.get("crossings")
+            diag = t.get("diagnostics") or {}
+            for when in ("init", "final"):
+                stiff = (diag.get(when) or {}).get("stiffness") or {}
+                line[f"stiffness_{when}"] = stiff.get("lambda_max")
+            align = (diag.get("final") or {}).get("backprop_alignment") or {}
+            line["bp_cos_min"] = align.get("min_cos")
+            line["bp_cos_mean"] = align.get("mean_cos")
+            line["bp_cos_weakest"] = align.get("weakest")
             # The last line of a traceback says what went wrong.
             line["error"] = _last_line(t.get("error"))
             out.writerow(line)
