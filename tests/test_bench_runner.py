@@ -276,8 +276,10 @@ def test_an_epc_row_can_follow_lambda_max(tmp_path, rng_key):
 
 
 def test_rows_without_rate_control_record_none(tmp_path, rng_key):
+    import dataclasses
+
     result = run_trial(
-        ROWS["mnist-mlp-epc"],
+        dataclasses.replace(ROWS["mnist-mlp-epc"], rate_control=None),
         0,
         tmp_path,
         loaders=fake_mnist_loaders(rng_key),

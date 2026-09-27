@@ -167,3 +167,18 @@ def test_deep_rows_let_adam_scale_up_tiny_pc_gradients(family):
         tiny = last_step(make(1000), 1e-10)
         normal = last_step(make(1000), 1e-2)
         assert tiny > 0.5 * normal, (algo, tiny, normal)
+
+
+def test_every_pc_row_has_the_safety_net_and_backprop_rows_do_not():
+    # The rate only shrinks when a run nears the settle's stability limit
+    # (eta * stiffness = 2). ePC rows were healthy at 0.07 or less and broke
+    # far above it, so they act at 1.0; healthy sPC rows reached 1.7, so
+    # they act at 1.8 and leave those runs as they were.
+    for row in ROWS.values():
+        if row.algorithm == "backprop":
+            assert row.rate_control is None, row.id
+        else:
+            target = {"epc": 1.0, "spc": 1.8}[row.algorithm]
+            assert row.rate_control is not None, row.id
+            assert row.rate_control.target == target, row.id
+            assert row.rate_control.every == 50, row.id

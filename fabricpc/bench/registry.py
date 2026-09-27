@@ -66,6 +66,26 @@ class RateControl:
     window: int = 3
 
 
+# The safety net every PC row trains with: the inference rate shrinks only
+# when a run nears the settle's stability limit, eta * stiffness = 2
+# (fabricpc.training.InferenceRateController). Where it acts comes from the
+# end-of-training values of our own runs: ePC rows were healthy at 0.07 or
+# below (MNIST, Fashion-MNIST, VGG-5) and broke at 3 to 15 (the autoencoder,
+# 3 of 5 seeds); sPC rows were healthy up to 1.7 (Fashion-MNIST 1.6, VGG-5
+# 1.0 to 1.7) and degraded above 2 (autoencoder 1.9 to 2.4, the transformer
+# about 650). So ePC acts at 1.0 and sPC at 1.8, and runs that were healthy
+# train as before. Probing every 50 updates adds roughly a tenth to the
+# training time.
+_SAFETY_TARGET = {"epc": 1.0, "spc": 1.8}
+_SAFETY_EVERY = 50
+
+
+def _safety_net(algorithm: str) -> Optional["RateControl"]:
+    if algorithm not in _SAFETY_TARGET:
+        return None
+    return RateControl(target=_SAFETY_TARGET[algorithm], every=_SAFETY_EVERY)
+
+
 @dataclass(frozen=True)
 class BenchmarkRow:
     """Everything needed to run one benchmark row."""
@@ -207,6 +227,7 @@ def _mlp_family(dataset: str) -> Dict[str, BenchmarkRow]:
             optimizer_factory=lambda total_steps: optax.adamw(0.001, weight_decay=0.1),
             train_config={"num_epochs": 20},
             batch_size=batch_size,
+            rate_control=_safety_net(algo),
             reference=Reference(
                 metric="accuracy",
                 value=_MLP_STAGE1_ACCURACY[dataset][algo],
@@ -319,6 +340,7 @@ def _cifar10_vgg5_family() -> Dict[str, BenchmarkRow]:
             ),
             train_config={"num_epochs": 50},
             batch_size=batch_size,
+            rate_control=_safety_net(algo),
         )
     return rows
 
@@ -369,6 +391,7 @@ def _cifar10_resnet18_family() -> Dict[str, BenchmarkRow]:
             optimizer_factory=lambda total_steps: optax.adamw(1e-3, weight_decay=0.01),
             train_config={"num_epochs": 100},
             batch_size=batch_size,
+            rate_control=_safety_net(algo),
         )
     return rows
 
@@ -466,6 +489,7 @@ def _tinyshakespeare_transformer_family() -> Dict[str, BenchmarkRow]:
             ),
             train_config={"num_epochs": c["num_epochs"]},
             batch_size=c["batch_size"],
+            rate_control=_safety_net(algo),
             metric="perplexity",
         )
     return rows
@@ -575,6 +599,7 @@ def _mnist_autoencoder_family() -> Dict[str, BenchmarkRow]:
             optimizer_factory=lambda total_steps: optax.adam(1e-3),
             train_config={"num_epochs": 20},
             batch_size=batch_size,
+            rate_control=_safety_net(algo),
             tier=2,
             metric="reconstruction_mse",
             eval_metrics=scores,
