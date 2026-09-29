@@ -21,6 +21,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Optional, Sequence, Tuple
 
+from fabricpc.bench.ci import paired_ci95
 from fabricpc.bench.registry import BenchmarkRow, Comparison
 from fabricpc.bench.runner import _TRAINER_ALGORITHM
 from fabricpc.experiments import ExperimentArm, PlannedMultiContrastResults
@@ -131,6 +132,18 @@ def _plain(d: dict) -> dict:
     return {k: v.item() if hasattr(v, "item") else v for k, v in d.items()}
 
 
+def _with_ci(res: PlannedMultiContrastResults, contrast: dict) -> dict:
+    """Add the 95% t interval on the paired difference to one contrast.
+
+    The framework's contrast has the SE of the difference but no interval,
+    so we work it out from the same per-seed differences.
+    """
+    a = res.per_arm_metrics(contrast["arm_a"])
+    b = res.per_arm_metrics(contrast["arm_b"])
+    low, high = paired_ci95(a, b)
+    return {**contrast, "ci95_low": low, "ci95_high": high}
+
+
 def compare_family(results_dir, comparison: Comparison, *, metric: str) -> dict:
     """Run a family's planned contrasts and write ``compare-<family>.json``."""
     res = planned_results(
@@ -146,7 +159,7 @@ def compare_family(results_dir, comparison: Comparison, *, metric: str) -> dict:
         "n_trials": res.n_trials,
         "unpaired_seeds": _pair_on_shared_seeds(results_dir, comparison.rows)[2],
         "num_epochs": res.num_epochs,
-        "contrasts": [_plain(asdict(c)) for c in res.contrast_results()],
+        "contrasts": [_with_ci(res, _plain(asdict(c))) for c in res.contrast_results()],
     }
     # The family's own metric keeps the plain name; any other metric gets its
     # own file, so comparing on a second metric never overwrites the first.

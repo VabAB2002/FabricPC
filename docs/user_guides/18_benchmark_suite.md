@@ -13,6 +13,7 @@ python -m fabricpc.bench mnist-mlp-spc --trials 5      # one row, 5 seeds
 python -m fabricpc.bench mnist-mlp --trials 5          # a family: all three rows, then compare
 python -m fabricpc.bench compare mnist-mlp             # compare results already on disk
 python -m fabricpc.bench validate results              # check a results folder is whole
+python -m fabricpc.bench report results --out report.md  # one readable page for a results folder
 python -m fabricpc.bench smoke                         # the short run CI uses
 ```
 
@@ -35,7 +36,7 @@ results/
     manifest.json     environment: versions, git commit, GPU, XLA flags, command, row settings
     trial0.json ...   one file per seed
     trials.csv        every trial on one line
-    summary.json      mean, std, standard error, pass/fail band
+    summary.json      mean, std, standard error, 95% CI, pass/fail band
   compare-cifar10-vgg5.json   paired contrasts for the family
 ```
 
@@ -60,6 +61,8 @@ Every file carries `schema_version`. Each trial records:
 Trial `i` uses seed `i·1000`, the same rule as `PlannedMultiContrastExperiment`, so trial `i` of every row in a family sees the same data order and the same initial key. A trial here trains exactly the model the experiment framework would train for that seed; a test checks the accuracies match to the bit.
 
 `compare` loads the finished trials into the framework's own `PlannedMultiContrastResults` and uses its `contrast_results()`: a paired t-test and Cohen's d on the per-seed differences. Each family tests three contrasts: sPC vs backprop, ePC vs backprop, and ePC vs sPC. Rows are paired on the seeds that all of them ran successfully; seeds only some rows have are listed as `unpaired_seeds`, and fewer than two shared seeds is an error.
+
+Every mean in `summary.json` (metrics and timing) has `ci95_low` and `ci95_high` beside `mean`, `std`, `se` and `n`: a 95% confidence interval using the Student t value for n-1 degrees of freedom (`fabricpc.bench.ci`). With few seeds t is much bigger than 1.96: 2.78 for five seeds, 4.30 for three, 12.7 for two, so a two-seed interval is very wide on purpose. Each contrast in a compare file also gets `ci95_low` and `ci95_high` for its mean difference, worked out from the same per-seed differences as the paired t-test; the framework's contrast has the SE but no interval. Zero lies outside that interval exactly when p < 0.05. The intervals are not corrected for testing three contrasts at once. The CLI prints them as `95% CI [low, high]`.
 
 ## The pass/fail band
 
@@ -91,13 +94,60 @@ Two numbers say what a PC score means. `backprop_alignment.mean_cos` near 1 says
 
 `mnist-autoencoder` (784-128-32-128-784, ReLU inside, sigmoid out, pixels in [0, 1]) is not a classifier, so it declares its own scores through the row's `eval_metrics` instead of `evaluate`'s defaults. Its main metric is `reconstruction_mse`, the mean squared pixel error (lower is better). `code_sparsity` is the fraction of the 32 bottleneck units that are silent, and `hidden_sparsity` the same over all three hidden layers. A unit counts as silent when its activation is below 1e-6. Sparsity is read from each unit's activation (z_mu), not its latent: in a settled PC state the latent carries a small leftover error, which would make every PC unit look slightly active. `compare mnist-autoencoder` pairs the three methods on `reconstruction_mse`; pass `--metric code_sparsity` to compare sparsity instead.
 
+## The Hopfield rows (trained denoising, not yet attractor recall)
+
+`patterns64-hopfield` is associative memory: store a few patterns, then get a whole one back from a noisy copy. It follows the binary experiment in `examples/storkey_hopfield_recall.py`: seven random ±1 patterns of 64 bits (new ones for every seed, the same for all three rows), the graph `probe -> StorkeyHopfield -> output`, trained for 30 epochs on 100 noisy copies of each pattern per epoch with 15% of the bits flipped. It runs on a laptop CPU: the whole family at 3 seeds took under 3 minutes on a MacBook (about 20 seconds per trial, most of it compiling the per-epoch learning curve; `--curve-batches 0` skips the curve).
+
+The test set flips 0%, 10%, 20%, 30% and 50% of the bits, 20 probes per pattern at each rate. The recalled pattern is the sign of the Hopfield node's latent (0 counts as +1), and each rate gets its own scores, named with the rate (`_p20` is 20%):
+
+| Score | Meaning |
+|---|---|
+| `bit_accuracy_pNN` | fraction of bits that match the stored pattern (the main metric is `bit_accuracy_p20`) |
+| `exact_recall_pNN` | fraction of probes brought back with every bit right |
+| `nearest_correct_pNN` | fraction closer to the right pattern than to any other stored one (the example's "exact"; a tie does not count) |
+| `storkey_rule_bit_accuracy_pNN`, `storkey_rule_exact_recall_pNN` | the same probes recalled by a classic Hopfield network written with the Storkey (1997) rule |
+| `probe_bit_accuracy_pNN`, `probe_exact_recall_pNN` | the do-nothing baseline: the noisy probe handed back unchanged |
+| `bit_accuracy_lift_pNN` | `bit_accuracy_pNN` minus the do-nothing baseline; 0 means the row learned nothing |
+
+At 0% any network that keeps the probe's signs is perfect, so p00 only checks that nothing is destroyed, not that the patterns are stored. 50% is chance (bit accuracy near 0.5). Always read a score next to its `probe_*` baseline: a row that copies its input scores about 1 minus the flip rate in bit accuracy and 0 in exact recall. Things to keep in mind when reading the numbers:
+
+- The `StorkeyHopfield` node does not use the Storkey rule. Its weights are learned by gradient descent from noisy copies, so it is a trained denoiser. The `storkey_rule_*` scores are the real rule on the same patterns and probes, written once from the clean patterns. They do not depend on training, so all three rows show the same value: read them as a fixed ruler, not a fourth method.
+- The backprop row reads the pattern from one pass through the node, `tanh` of a blend of the probe and `probe @ W`, with no settling. sPC and ePC read it after inference, and every PC row also records `forward_*` scores from one pass. With these settings (20 steps, output free, Hopfield strength 1.0) settling adds essentially nothing: on our Mac check the settled and `forward_*` scores matched to within 0.002 in bit accuracy, and settled was sometimes a little worse. So all three rows are one-layer denoisers that differ only in how W was trained, and all sit well below the Storkey-rule ruler. They do not yet test attractor recall; do not present them as that.
+- The rows recall with the training graph's 20 inference steps. The example uses 100; on our check that moved bit accuracy by 0.002 at most.
+- The ePC row does not use ePC's defaults. With η = 0.001 and 5 steps W never learned to denoise: every score equalled the do-nothing baseline (bit accuracy 0.796 at 20%, exact recall 0). It now uses η = 0.1 and 20 steps, where it learns like sPC (0.950 vs 0.949 on seed 0). ePC Hopfield results from before this change, such as `hopfield-mac-check`, are the do-nothing score and need a rerun.
+
+`compare patterns64-hopfield` pairs the rows on `bit_accuracy_p20`; pass `--metric exact_recall_p20` (or any score above) to compare on another. Code: `fabricpc/bench/rows_hopfield.py`.
+
+## Estimating time and cost before a run
+
+`probe` builds a row's model and loaders, times a few training steps and evaluation batches (compile timed on its own, median of the steps), and multiplies out the full run instead of doing it. It counts two compiles per seed, because a real trial compiles the step once for its timing pass and again inside `train()`:
+
+```bash
+python -m fabricpc.bench probe mnist-mlp                        # every row of a family
+python -m fabricpc.bench probe cifar10-vgg5-spc --trials 5 --epochs 50 --price-per-hour 1.06
+```
+
+It prints, per row, the step time, steps per epoch, time per seed and for all seeds, and the family total with its cost (hours times `--price-per-hour`, default 1.06 USD, what a Lightning T4 cost us). `--trials` and `--epochs` default to the row's own; `--warmup` and `--timed` set how many steps are timed (default 2 and 10). With `--out DIR` it also writes `probe-<row-or-family>.json` there. The numbers only hold for the device they were measured on, which the report names, so probe on the machine you will pay for. The estimate leaves out the rate safety net's probes (about a tenth more on PC rows), the diagnostics and process start-up, so treat it as a floor.
+
 ## Running on a GPU in the cloud
 
 `scripts/lightning/make_job.sh` builds the command for a Lightning AI job that runs one benchmark at a pinned commit with `--zoo`, and `scripts/lightning/fetch_results.sh` brings the results back and runs `validate`. Long runs can be split across jobs with `--resume`.
 
+## Fixing old results without retraining
+
+When a bug fix changes a number the suite works out rather than measures, `refresh` writes a corrected copy of an old results folder:
+
+```bash
+python -m fabricpc.bench refresh results/old-run --out results/old-run-refreshed
+```
+
+It recounts `compute` and `achieved_tflops` with today's FLOP counter (keeping the run's own settling steps and its measured step time), makes cloud checkpoint paths relative to the new folder when the zoo is on disk (`--zoo DIR` if it is not next to the old results), and marks `peak_memory_bytes` with `peak_memory_comparable: false` when the run has no `step_memory`. Metrics and times are copied unchanged. Each trial and manifest gets a `refresh` list saying what changed and with which commit; the manifest's own `git_sha` stays the commit that trained. The old folder is never edited, and the new one is checked with `validate`. `--out` is required and must not already hold results for those rows. Every row is checked before anything is written: a row not in the registry, or whose parameter count or weighted-edge count no longer matches the run, stops the refresh. Every compare file in the old folder is rebuilt (family, pairwise, or on another metric); one that cannot be rebuilt is copied unchanged and listed in the new `NOTES.md`, which also carries the old notes under a line saying what was corrected. A band verdict that changes against today's reference is recorded in the manifest's refresh record.
+
 ## Adding a row
 
 Rows live in `fabricpc/bench/registry.py` as frozen `BenchmarkRow`s: a model factory `(rng_key) -> (params, structure)`, a loader factory `(seed) -> (train, test)`, an optimizer factory `(total_steps) -> optax transform` (so learning-rate schedules can see the run length), the training config, the batch size, and optionally an expected score and the row's main metric. All three rows of a family must build the same graph and differ only in the solver.
+
+A family can also live in its own module and be added to `ROWS` with one line; `fabricpc/bench/cifar100.py` does this for `cifar100-vgg5`, the CIFAR-10 VGG-5 recipe with 100 classes and pcx's CIFAR-100 settings (12 settling steps, hard tanh; weight decay 7.6e-3 for the PC rows and 2.2e-5 for backprop, since pcx tuned each on its own). pcx's best VGG-5 CIFAR-100 score is 67.19% (centered nudging, which we do not run); its PC-CE and backprop cross-entropy runs score 60.00% and 60.82%. The rows have no expected score until their first full run.
 
 ## A note on graph layout
 

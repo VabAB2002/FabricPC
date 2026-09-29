@@ -18,6 +18,7 @@ from typing import Dict, List, Optional
 
 import numpy as np
 
+from fabricpc.bench.ci import mean_ci95, paired_ci95
 from fabricpc.bench.manifest import SCHEMA_VERSION
 
 MIN_TRIALS = 2
@@ -36,10 +37,13 @@ def _stats(values: List[float]) -> Dict[str, float]:
     arr = np.asarray(values, dtype=float)
     n = len(arr)
     std = float(np.std(arr, ddof=1)) if n > 1 else 0.0
+    low, high = mean_ci95(arr) if n > 1 else (None, None)
     return {
         "mean": float(np.mean(arr)),
         "std": std,
         "se": std / math.sqrt(n) if n > 1 else 0.0,
+        "ci95_low": low,  # 95% t interval for the mean, see fabricpc.bench.ci
+        "ci95_high": high,
         "n": n,
     }
 
@@ -113,6 +117,8 @@ class Contrast:
     p_value: float
     significant_at_05: bool
     cohens_d: float
+    ci95_low: float = math.nan  # 95% t interval for mean_diff
+    ci95_high: float = math.nan
 
 
 def compare_rows(results_dir, row_a: str, row_b: str, *, metric: str) -> Contrast:
@@ -127,6 +133,7 @@ def compare_rows(results_dir, row_a: str, row_b: str, *, metric: str) -> Contras
         results_dir, rows=(row_a, row_b), contrasts=((row_a, row_b),), metric=metric
     )
     (c,) = res.contrast_results()
+    low, high = paired_ci95(res.per_arm_metrics(row_a), res.per_arm_metrics(row_b))
     contrast = Contrast(
         row_a=row_a,
         row_b=row_b,
@@ -138,6 +145,8 @@ def compare_rows(results_dir, row_a: str, row_b: str, *, metric: str) -> Contras
         p_value=float(c.p_value),
         significant_at_05=bool(c.significant_at_05),
         cohens_d=float(c.cohens_d),
+        ci95_low=low,
+        ci95_high=high,
     )
     path = Path(results_dir) / f"compare-{row_a}-vs-{row_b}.json"
     path.write_text(json.dumps(asdict(contrast), indent=2))

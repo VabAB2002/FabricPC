@@ -9,13 +9,20 @@
     python -m fabricpc.bench compare <family>     (e.g. mnist-mlp)
     python -m fabricpc.bench smoke [--floor 0.85]
     python -m fabricpc.bench validate [DIR]
+    python -m fabricpc.bench refresh <old-dir> --out <new-dir> [--zoo DIR]
+    python -m fabricpc.bench probe <row|family> [--price-per-hour P]
+    python -m fabricpc.bench report <results_root> [--out report.md]
+                                                   [--format md|html]
 
 Running a row writes one JSON file per trial, a manifest, ``trials.csv``
 (every trial on one line), and (with two or more good trials) a summary
 with the mean and standard error. ``validate`` checks that a results
-folder is complete and consistent. ``smoke`` is
-the short run CI uses: a small row, two seeds, half an epoch, and a check
-that accuracy is still above a floor.
+folder is complete and consistent. ``probe`` times a few steps and
+estimates a full run's time and cost (see ``fabricpc.bench.probe``).
+``report`` writes one readable page for a whole results folder (see
+``fabricpc.bench.report``). ``smoke`` is the short run CI uses: a small
+row, two seeds, half an epoch, and a check that accuracy is still above a
+floor.
 
 A full run (the row's own epochs and seed count) is also checked against
 the row's expected score, when it has one, and prints PASS or FAIL. A FAIL
@@ -26,6 +33,10 @@ old trials never mix with new ones; use another folder to keep them.
 ``--resume`` skips trials that already finished with the same epoch count,
 so a run cut off by a cloud session limit can pick up where it stopped.
 ``--zoo DIR`` saves each trial's trained weights there.
+
+``refresh`` fixes numbers that older code worked out wrong (the FLOP count,
+cloud checkpoint paths) in a copy of a results folder, without retraining;
+see ``fabricpc.bench.refresh``.
 
 Each trial runs in its own Python process (see ``fabricpc.bench.isolate``).
 ``--in-process`` runs them all in this one instead, which is handy for
@@ -42,6 +53,7 @@ from fabricpc.bench.band import attach_band
 from fabricpc.bench.isolate import run_trial_in_child
 from fabricpc.bench.manifest import describe_row, write_manifest
 from fabricpc.bench.compare import compare_family
+from fabricpc.bench.refresh import refresh_results
 from fabricpc.bench.registry import COMPARISONS, ROWS
 from fabricpc.bench.runner import finished_trial, run_trial, seed_for_trial
 from fabricpc.bench.summary import MIN_TRIALS, compare_rows, summarize_row
@@ -55,12 +67,14 @@ def _parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="python -m fabricpc.bench")
     p.add_argument(
         "target",
-        help="'list', 'compare', 'smoke', 'validate', or a row id like mnist-mlp-spc",
+        help="'list', 'compare', 'smoke', 'validate', 'refresh', 'probe', "
+        "'report', or a row id like mnist-mlp-spc",
     )
     p.add_argument(
         "rows",
         nargs="*",
-        help="for 'compare': the two row ids; for 'validate': the results folder",
+        help="for 'compare': the two row ids; for 'validate' and 'refresh': "
+        "the results folder",
     )
     p.add_argument("--dry-run", action="store_true", help="show the row, do not train")
     p.add_argument("--out", default="results", help="where result files go")
@@ -73,12 +87,19 @@ def _parser() -> argparse.ArgumentParser:
         help="metric for 'compare' (default: the family's own, e.g. perplexity "
         "for text models, else accuracy)",
     )
+    p.add_argument(
+        "--format", choices=["md", "html"], help="for 'report' (default: md)"
+    )
     p.add_argument("--row", default=SMOKE_ROW, help="row for 'smoke'")
     p.add_argument("--floor", type=float, default=SMOKE_FLOOR, help="min accuracy")
     p.add_argument(
         "--resume", action="store_true", help="skip trials that already finished"
     )
-    p.add_argument("--zoo", help="save each trial's trained weights in this folder")
+    p.add_argument(
+        "--zoo",
+        help="save each trial's trained weights in this folder "
+        "(for 'refresh': where the old run's zoo is, if not next to it)",
+    )
     p.add_argument("--trial", type=int, help="run only this one trial")
     p.add_argument(
         "--curve-batches",
@@ -90,6 +111,11 @@ def _parser() -> argparse.ArgumentParser:
         "--in-process",
         action="store_true",
         help="run trials in this process instead of one process each",
+    )
+    p.add_argument(
+        "--price-per-hour",
+        type=float,
+        help="for 'probe': machine price in USD per hour (default 1.06, a T4)",
     )
     return p
 
@@ -179,7 +205,8 @@ def _run_row(
         acc = summary.metrics.get("accuracy")
         if acc:
             print(
-                f"{row.id}: accuracy {acc['mean']:.4f} ± {acc['se']:.4f} "
+                f"{row.id}: accuracy {acc['mean']:.4f} ± {acc['se']:.4f} SE, "
+                f"95% CI [{acc['ci95_low']:.4f}, {acc['ci95_high']:.4f}] "
                 f"(n={acc['n']}), step {summary.timing['step_time_ms']['mean']:.2f}ms"
             )
         band = summary.band
@@ -205,7 +232,9 @@ def _print_contrast(a, b, metric, c) -> None:
     sig = "yes" if c["significant_at_05"] else "no"
     print(
         f"{a} - {b} on {metric}: {c['mean_diff']:+.4f} "
-        f"(se {c['se_diff']:.4f}, p={c['p_value']:.3g}, d={c['cohens_d']:.2f}, "
+        f"(se {c['se_diff']:.4f}, "
+        f"95% CI [{c['ci95_low']:+.4f}, {c['ci95_high']:+.4f}], "
+        f"p={c['p_value']:.3g}, d={c['cohens_d']:.2f}, "
         f"n={c['n']}, significant at 5%: {sig})"
     )
 
@@ -246,6 +275,46 @@ def cmd_validate(args) -> int:
         print(f"validate: {len(problems)} problem(s) in {folder}", file=sys.stderr)
         return 1
     print(f"validate: {folder} is complete and consistent")
+    return 0
+
+
+def cmd_refresh(args, command) -> int:
+    """Write a corrected copy of an old results folder, then validate it."""
+    # --out defaults to "results" for the run commands. Refresh must be told
+    # where to write, or it could land on a real run in ./results.
+    typed_out = any(a == "--out" or a.startswith("--out=") for a in command[3:])
+    if len(args.rows) != 1 or not typed_out:
+        print("usage: refresh <old-results-dir> --out <new-dir>", file=sys.stderr)
+        return 2
+    try:
+        reports = refresh_results(args.rows[0], args.out, zoo=args.zoo, command=command)
+    except ValueError as e:
+        print(f"refresh: {e}", file=sys.stderr)
+        return 1
+    for r in reports:
+        old, new = r["achieved_tflops_old"], r["achieved_tflops_new"]
+        if new is not None:
+            print(f"{r['row_id']}: {old:.3f} -> {new:.3f} TFLOP/s (n={r['n_ok']})")
+    args.rows = [args.out]
+    return cmd_validate(args)
+
+
+def cmd_report(args, argv) -> int:
+    """Write one page about a results root. Without --out, print it."""
+    from fabricpc.bench.report import run_report
+
+    if len(args.rows) != 1:
+        print(
+            "usage: report <results_root> [--out FILE] [--format md|html]",
+            file=sys.stderr,
+        )
+        return 2
+    # --out has a default ("results") for the run commands; only use it here
+    # when the user actually typed it.
+    typed_out = any(a == "--out" or a.startswith("--out=") for a in argv)
+    out = args.out if typed_out else None
+    text = run_report(args.rows[0], out=out, fmt=args.format)
+    print(f"report: wrote {out}" if out else text, end="\n" if out else "")
     return 0
 
 
@@ -338,6 +407,30 @@ def _run_one_row(row, args, command) -> int:
     return 1 if failed or band_failed else 0
 
 
+def cmd_probe(args, argv) -> int:
+    """Estimate a row's or family's run time and cost from a few steps."""
+    from fabricpc.bench import probe
+
+    target = args.rows[0] if args.rows else None
+    if target not in ROWS and target not in COMPARISONS:
+        return _unknown_row(target)
+    # --warmup, --timed and --out have defaults meant for real runs; the
+    # probe only uses them when they were typed.
+    typed = {a.split("=")[0] for a in argv}
+    kwargs = {"trials": args.trials, "epochs": args.epochs}
+    if "--warmup" in typed:
+        kwargs["warmup"] = args.warmup
+    if "--timed" in typed:
+        kwargs["timed"] = args.timed
+    if args.price_per_hour is not None:
+        kwargs["price_per_hour"] = args.price_per_hour
+    report = probe.probe(target, **kwargs)
+    print(probe.format_probe(report))
+    if "--out" in typed:
+        print(f"wrote {probe.write_probe(args.out, report)}")
+    return 0
+
+
 def main(argv=None) -> int:
     args = _parser().parse_args(argv)
     command = [sys.executable, "-m", "fabricpc.bench", *(argv or sys.argv[1:])]
@@ -349,6 +442,12 @@ def main(argv=None) -> int:
         return cmd_smoke(args, command)
     if args.target == "validate":
         return cmd_validate(args)
+    if args.target == "refresh":
+        return cmd_refresh(args, command)
+    if args.target == "probe":
+        return cmd_probe(args, argv if argv is not None else sys.argv[1:])
+    if args.target == "report":
+        return cmd_report(args, command[3:])
     return cmd_run(args, command)
 
 

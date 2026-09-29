@@ -11,6 +11,7 @@ from typing import Callable, Dict, Mapping, Optional, Tuple
 import jax
 import optax
 
+from fabricpc.bench.cifar100 import cifar100_vgg5_family
 from fabricpc.core.activations import (
     GeluActivation,
     ReLUActivation,
@@ -607,13 +608,23 @@ def _mnist_autoencoder_family() -> Dict[str, BenchmarkRow]:
     return rows
 
 
+def _hopfield_family() -> Dict[str, BenchmarkRow]:
+    """Associative memory: recall a stored pattern from a noisy copy
+    (fabricpc.bench.rows_hopfield)."""
+    from fabricpc.bench.rows_hopfield import hopfield_family
+
+    return hopfield_family()
+
+
 ROWS: Dict[str, BenchmarkRow] = {}
 ROWS.update(_mlp_family("mnist"))
 ROWS.update(_mlp_family("fashionmnist"))
 ROWS.update(_cifar10_vgg5_family())
 ROWS.update(_cifar10_resnet18_family())
+ROWS.update(cifar100_vgg5_family())
 ROWS.update(_tinyshakespeare_transformer_family())
 ROWS.update(_mnist_autoencoder_family())
+ROWS.update(_hopfield_family())
 
 
 @dataclass(frozen=True)
