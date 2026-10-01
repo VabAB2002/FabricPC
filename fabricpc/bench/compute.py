@@ -48,15 +48,21 @@ def _flops_one_pass_for_edge(weight, target_shape, batch_size: int) -> int:
     return 2 * batch_size * spatial * weight_size
 
 
-def _matmul_output_shape(node):
+def _matmul_output_shape(node, input_shapes=None):
     """Where a node's matmul actually runs.
 
     Usually the node's own shape. A ConvPoolNode pools after its conv, so its
     shape is the pooled one and its conv runs on the larger, unpooled grid.
+    The same goes for a ConvResidualNode with global_pool, whose latent is
+    (C,) but whose conv runs on the whole map. The node's input shapes are
+    passed along because a pool rounds an odd size down, and only the input
+    tells us the real conv size then (7x7 pooled to 3x3, not 6x6).
     """
     shape = node.node_info.shape
     unpooled = getattr(type(node), "_unpooled_shape", None)
-    return unpooled(shape, node.node_info.node_config) if unpooled else shape
+    if unpooled is None:
+        return shape
+    return unpooled(shape, node.node_info.node_config, input_shapes)
 
 
 def count_compute(
@@ -79,9 +85,11 @@ def count_compute(
         if weight is None:
             continue  # e.g. a skip edge or an identity node: no matmul
         weighted_edges += 1
-        flops_per_pass += _flops_one_pass_for_edge(
-            weight, _matmul_output_shape(structure.nodes[edge.target]), batch_size
+        source_shape = structure.nodes[edge.source].node_info.shape
+        target_shape = _matmul_output_shape(
+            structure.nodes[edge.target], {edge_key: source_shape}
         )
+        flops_per_pass += _flops_one_pass_for_edge(weight, target_shape, batch_size)
 
     backprop_factor = 3
     if algorithm == "backprop":

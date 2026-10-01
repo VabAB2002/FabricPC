@@ -1,0 +1,20 @@
+{
+  "name": "gpu-campaign",
+  "description": "The GPU work that has been waiting for a real GPU, most important first, with the most expensive job (ResNet-18) last. Run with: python -m fabricpc.bench queue fabricpc/bench/plans/gpu_campaign.json --out ~/runs/gpu-campaign. Ids not in the registry yet are skipped with a message. The deeper VGGs (VGG-7/9) are in gpu_deep_vgg.json instead, because their layouts still need the sponsor's sign-off.",
+  "defaults": {"trials": 5, "zoo": true},
+  "jobs": [
+    {"id": "cifar10-vgg5", "note": "clean rerun of the headline family: sPC, ePC and backprop, 5 seeds, 50 epochs"},
+    {"id": "mnist-mlp", "note": "re-measure with 5 seeds so the expected score matches the current seed split"},
+    {"id": "fashionmnist-mlp", "note": "re-measure with 5 seeds so the expected score matches the current seed split"},
+    {"id": "mnist-autoencoder", "note": "first full 5-seed run of the autoencoder rows"},
+    {"id": "cifar100-vgg5", "note": "first full run; the rows get an expected score from it"},
+    {"id": "tinyshakespeare-transformer", "epochs": 5, "note": "character-level transformer, 5 epochs"},
+    {"id": "tinyimagenet-vgg5", "note": "Tiny-ImageNet, 200 classes on 56x56 crops"},
+    {"id": "tinyshakespeare-bpe-transformer", "note": "BPE-token transformer"},
+    {"id": "mnist-fcresnet8", "note": "deep family (sponsor issue #59): how PC holds up as depth grows"},
+    {"id": "mnist-fcresnet32", "note": "deep family"},
+    {"id": "mnist-fcresnet128", "note": "deep family, the deepest"},
+    {"id": "cifar10-resnet18", "epochs": 30, "trials": 3, "note": "plain ResNet-18 on a shorter first-pass budget (its own default is 100 epochs); same budget as the lean rows so the two layouts can be compared"},
+    {"id": "cifar10-resnet18lean", "epochs": 30, "trials": 3, "note": "lean ResNet-18 (fewer PC latents, same network); same 30-epoch, 3-seed budget as the plain rows. Last because ResNet-18 is the most expensive job here"}
+  ]
+}

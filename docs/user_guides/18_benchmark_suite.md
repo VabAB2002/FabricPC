@@ -15,6 +15,7 @@ python -m fabricpc.bench compare mnist-mlp             # compare results already
 python -m fabricpc.bench validate results              # check a results folder is whole
 python -m fabricpc.bench report results --out report.md  # one readable page for a results folder
 python -m fabricpc.bench smoke                         # the short run CI uses
+python -m fabricpc.bench regress --out regress-results # CI's regression checks
 ```
 
 Results go under `--out` (default `results/`). Useful flags:
@@ -73,6 +74,18 @@ A full run (the row's own epoch count and seed count) is checked against the row
 ```
 
 The floor defaults to half a percentage point of accuracy. A FAIL makes the command exit non-zero. Rows without an expected score, and shortened runs, get no verdict. The rule and the default of 5 seeds are a proposal awaiting the maintainers' sign-off, and every verdict says so.
+
+## The regression checks in CI
+
+`smoke` shows one MNIST model still learns. `regress` is a stronger check that runs on every push: tiny fixed-seed runs of three kinds of model, each with sPC, ePC and backprop, where the mean of two seeds has to stay on the right side of a fixed line.
+
+| Rows | Run | Score | Line |
+|---|---|---|---|
+| `mnist-mlp-*` | 0.5 epoch | test accuracy | at least 0.85 |
+| `mnist-autoencoder-*` | 0.5 epoch | reconstruction MSE | at most 0.055 |
+| `patterns64-hopfield-*` | 30 epochs (the full row) | `bit_accuracy_lift_p20` | at least 0.10 |
+
+The lines were set from real runs with a wide margin, so a different CPU or jax version does not make CI flaky; `MEASURED` in `fabricpc/bench/regress.py` has the numbers. For scale: handing back the average image scores an MSE of 0.0675, and a Hopfield row that learned nothing has a lift of 0. After the runs the folder is validated, and `report.md` and `regress.json` (every verdict) are written into it. Any FAIL, failed trial or validate problem makes the command exit non-zero. `regress mnist-autoencoder-epc` runs just that one check. If a change is meant to move a score across its line, change the line in `regress.py` in the same pull request and say why.
 
 ## Settled scores and forward-pass scores
 
@@ -133,6 +146,8 @@ It prints, per row, the step time, steps per epoch, time per seed and for all se
 
 `scripts/lightning/make_job.sh` builds the command for a Lightning AI job that runs one benchmark at a pinned commit with `--zoo`, and `scripts/lightning/fetch_results.sh` brings the results back and runs `validate`. Long runs can be split across jobs with `--resume`.
 
+On a shared GPU machine (a JupyterHub), `python -m fabricpc.bench queue <plan.json> --out DIR` works through a list of rows and families in order, with `--resume`, a `queue-status.json` after every job, and `validate` plus `report` at the end; `fabricpc/bench/plans/gpu_campaign.json` is the waiting GPU work, and `gpu_deep_vgg.json` holds VGG-7/9 until their layouts are signed off. See [Running on a GPU Server](19_running_on_a_gpu_server.md).
+
 ## Fixing old results without retraining
 
 When a bug fix changes a number the suite works out rather than measures, `refresh` writes a corrected copy of an old results folder:
@@ -149,6 +164,20 @@ Rows live in `fabricpc/bench/registry.py` as frozen `BenchmarkRow`s: a model fac
 
 A family can also live in its own module and be added to `ROWS` with one line; `fabricpc/bench/cifar100.py` does this for `cifar100-vgg5`, the CIFAR-10 VGG-5 recipe with 100 classes and pcx's CIFAR-100 settings (12 settling steps, hard tanh; weight decay 7.6e-3 for the PC rows and 2.2e-5 for backprop, since pcx tuned each on its own). pcx's best VGG-5 CIFAR-100 score is 67.19% (centered nudging, which we do not run); its PC-CE and backprop cross-entropy runs score 60.00% and 60.82%. The rows have no expected score until their first full run.
 
+`fabricpc/bench/tinyimagenet.py` adds `tinyimagenet-vgg5` the same way: VGG-5 with 200 classes on 56x56 crops of Tiny-ImageNet's 64x64 images (random flip and random 56x56 window for training, the centre 56x56 of the 10,000 `val` images for scoring, since the official test split has no labels), with pcx's PC-CE settings (7 settling steps, hard tanh; weights 4.5e-5 / decay 1.4e-3 for the PC rows, 8.7e-5 / 2.1e-5 for backprop). `TinyImageNetLoader` downloads the official 248 MB zip once (md5 checked) to `~/tensorflow_datasets/tiny_imagenet_200` (or `$FABRICPC_TINYIMAGENET_DIR`) and decodes JPEGs from it per batch, so nothing else is written to disk. pcx's best VGG-5 Tiny-ImageNet score, 46.40% top-1, is negative nudging, which we do not run; its PC-CE and backprop cross-entropy runs score 41.29% and 43.72%. These rows also have no expected score yet.
+
+`fabricpc/bench/bpe.py` adds `tinyshakespeare-bpe-transformer` the same way: the char transformer recipe (same builder, cosine decay to a tenth, Adam epsilon 1e-12, safety net) with the BPE settings of `examples/transformer_v2_demo.py` (`BPE_DEFAULTS`: 4 blocks of width 128, 64 tokens, batch 32, 23 settling steps, 11711 BPE ids). It is Tier 2 and heavy: 7,527 steps per epoch, and on a MacBook CPU a step took about 0.7 s for backprop, 3.3 s for ePC and 15 s for sPC. The tokenizer is trained once (a few seconds) and cached with the encoded splits, about 2 MB, in `~/.cache/fabricpc/bpe_tokenized` (set `FABRICPC_BPE_DIR` to move it). The demo's comment gives val perplexity about 1133 and test about 721, but from tuning on a 50k-sequence subset, about a fifth of the training text these rows use, so those are not this row's setting. Guessing each token by its frequency in the training text (unigram, add-one smoothing) scores about 790 on test and about 674 on val. The rows are scored on test, so judge them against the test numbers only: unigram 790, demo 721. BPE perplexities cannot be compared with the char rows' (a token is about 4 characters).
+
+## The deep FC-ResNet rows (muPC past 100 layers)
+
+`mnist-fcresnet{8,16,32,64,128}` answer sponsor issue #59: does muPC keep a predictive coding net trainable at 100+ layers? Each is the network from `examples/mupc_demo.py`, input(784) -> stem(64) -> *depth* `LinearResidual` blocks (one PC node each, `tanh(W x + b) + x`) -> softmax readout, with muPC on (weight path scaled by gain / sqrt(64 · depth), the identity skip unscaled, the readout left out). The settings are the demo's: batch 256, 3 epochs, AdamW 0.002 with weight decay 0.01, sPC settling at rate 0.1 for max(20, 3 · (depth + 2)) steps; Adam's epsilon is 1e-12 like the other deep rows. Each row carries its `depth`, and `report` adds an "Accuracy against depth" table with one line per depth and one column per method. Depths 8 and 16 are tier 1; 32 and up are tier 2, because sPC's settle grows with depth twice over (more nodes, more steps): on a MacBook CPU an sPC step takes about 0.07 s at depth 8 and 8 s at depth 128. This is the demo's recipe, not the muPC paper's (pre-activation, no biases, muPC on a squared-error readout, Adam 0.1, batch 64, one epoch). First Mac CPU checks: at depth 8 (2 seeds, full run) backprop 92.9%, ePC 92.9%, sPC 92.1%, matching the demo's 92.0%. At depth 128 (1 seed) backprop reached 89.6% and ePC 87.8% after 3 epochs, and sPC went from 9% to 76% in its first 200 updates (a full sPC run there is about 2 hours on CPU). Backprop also loses about 3 points from depth 8 to 128, so part of the demo's drop with depth comes from the recipe, not from PC. Code: `fabricpc/bench/deep.py`.
+
 ## A note on graph layout
 
 How a network is split into PC nodes matters for sPC. On VGG-5, a separate `MaxPool` node after every conv doubles the number of latent layers; sPC then reached 37% on CIFAR-10 after 50 epochs, against 84% with the pool fused into the conv (`ConvPoolNode`, `create_vgg(fuse_pool=True)`). Backprop and ePC were unaffected. The VGG rows use the fused layout. The v2 transformer has the same kind of extra layer: its MLP is two PC nodes, with the wide hidden layer as a latent of its own. `create_deep_transformer(fuse_mlp=True)` builds each MLP as one `MlpResidualNode` (same weights, two latents per block instead of three); the transformer rows do not use it yet. The VGG-5 and transformer rows give Adam an epsilon of 1e-12 instead of the default 1e-8, for all three methods: sPC's error reaches the first layers of these graphs scaled down by about the inference rate per hop, so their weight gradients are around 1e-8 to 1e-10, and at the default epsilon Adam barely moves them (under sPC the transformer's embedding stayed frozen). Backprop's gradients are far above both values. VGG-5 and transformer results from before this change used the default.
+
+## The deeper conv rows
+
+`cifar10-vgg7` and `cifar10-vgg9` are the `cifar10-vgg5` recipe with a deeper `create_vgg(depth, fuse_pool=True)`: 3x3 convs with a 2x2 max pool fused into the last conv of each block, 128,128 | 256,256 | 512,512 for VGG-7 and one more 512,512 block for VGG-9. Everything else (loaders, optimizer, schedule, Adam epsilon, settling settings, safety net) is VGG-5's. These layouts are ours and need the sponsor's confirmation: pcx's VGG-7 (Table 5 of arXiv 2407.01163) has the same channels but leaves some convs unpadded, pcx only ships VGG-7 configs for CIFAR-100 and Tiny ImageNet, and it has no VGG-9 code. The sPC rows keep VGG-5's 8 settling steps at rate 0.015. A check on one batch at initialization says this is probably not enough: sPC's weight update matched backprop's (cosine near 1) in only the top three or four conv layers, and the layers below got updates about 1e-5 to 1e-8 the size of backprop's with a cosine near 0, which is float noise. 12 steps bought one more layer. Read an sPC VGG-7/9 result with that in mind, and probe the settling rate or step count on a GPU before paying for a full run.
+
+`cifar10-resnet18lean` is `cifar10-resnet18` built with `build_resnet18(lean=True)`. The plain ResNet-18 gives nine nodes a PC latent although they have no weights (eight `SkipConnection` adds and the global `AvgPool`), the same pattern that broke sPC on VGG-5 with separate pool nodes. The lean layout folds each add into the block's second conv (`ConvResidualNode`) and the average pool into the last block: 21 latents instead of 30, the same 2,795,210 parameters, and with the same weights the same forward pass, muPC scales included (the node applies the scales muPC would have put on the folded edges). So its backprop row trains the same network as the plain one, and the PC rows differ only in the latents. The plain rows are unchanged. On one CIFAR-10 batch at initialization, sPC's update agreed with backprop's (cosine above 0.5) in more weight layers with the lean layout than the plain one at 8, 30 and 120 settling steps (10 vs 7, 18 vs 12, 13 vs 12 of 21); whether that turns into better accuracy needs a GPU run. Code: `fabricpc/bench/rows_deep_convnets.py`. None of these rows has an expected score yet.

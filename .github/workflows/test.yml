@@ -59,7 +59,8 @@ jobs:
 
   bench-smoke:
     # A short real training run on MNIST. The unit tests above prove the
-    # code runs; this proves a model still learns after a change. It needs
+    # code runs; this proves a model still learns after a change, and the
+    # regression checks prove the scores did not quietly get worse. It needs
     # [tfds] for the dataset, which is why it is its own job.
     runs-on: ubuntu-latest
     steps:
@@ -76,8 +77,18 @@ jobs:
         run: python -m fabricpc.bench smoke --out smoke-results
       - name: Check the result files are complete
         run: python -m fabricpc.bench validate smoke-results
+      - name: Regression checks
+        # Tiny fixed-seed runs (MNIST MLP, MNIST autoencoder, 64-bit
+        # Hopfield; sPC, ePC and backprop), each mean held to a line set
+        # from real runs with a wide margin. Catches a change that quietly
+        # makes results worse. See fabricpc/bench/regress.py.
+        run: python -m fabricpc.bench regress --out regress-results
+      - name: Check the regression result files are complete
+        run: python -m fabricpc.bench validate regress-results
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: bench-smoke-results
-          path: smoke-results
+          path: |
+            smoke-results
+            regress-results

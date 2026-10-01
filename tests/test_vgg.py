@@ -166,3 +166,37 @@ def test_fused_vgg5_takes_one_training_step(algorithm):
     y = jax.nn.one_hot(jnp.array([1, 7]), 10)
     _, _, metrics, _ = step(params, opt_state, {"x": x, "y": y}, jax.random.PRNGKey(1))
     assert jnp.isfinite(metrics["energy"])
+
+
+def test_fused_pool_rounds_an_odd_size_down_like_pcx():
+    # Tiny-ImageNet crops are 56x56: 56 -> 28 -> 14 -> 7 -> 3. The last 2x2
+    # pool drops the odd row and column, as pcx's MaxPool2d(2, 2) does.
+    structure = create_vgg(
+        5,
+        input_shape=(56, 56, 3),
+        num_classes=4,
+        inference=InferenceSGD(eta_infer=0.05, infer_steps=2),
+        fuse_pool=True,
+    )
+    params = initialize_params(structure, jax.random.PRNGKey(0))
+    assert tuple(structure.nodes["conv4"].node_info.shape) == (3, 3, 512)
+    assert params.nodes["class"].weights[
+        next(iter(params.nodes["class"].weights))
+    ].shape == (3 * 3 * 512, 4)
+
+
+def test_fused_pool_still_rejects_a_shape_the_pool_cannot_make():
+    from fabricpc.core.topology import Edge
+    from fabricpc.graph_assembly import TaskMap, graph
+    from fabricpc.nodes import ConvPoolNode, IdentityNode
+
+    x = IdentityNode(shape=(7, 7, 3), name="x")
+    conv = ConvPoolNode(shape=(4, 4, 8), name="conv", kernel_size=(3, 3))
+    structure = graph(
+        nodes=[x, conv],
+        edges=[Edge(source=x, target=conv.slot("in"))],
+        task_map=TaskMap(x=x, y=conv),
+        inference=InferenceSGD(eta_infer=0.05, infer_steps=2),
+    )
+    with pytest.raises(ValueError, match="declared output spatial shape"):
+        initialize_params(structure, jax.random.PRNGKey(0))

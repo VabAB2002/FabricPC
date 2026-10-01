@@ -408,6 +408,30 @@ def _notes_blocks(folder: Path, root: Path) -> list:
     return blocks
 
 
+def _depth_blocks(families, root) -> list:
+    """One table of score against depth for rows swept over depth
+    (fabricpc.bench.deep), across all their family folders. Each row is
+    tagged with the results folder its family sits in, so the same row
+    run in two places shows up twice instead of one silently winning."""
+    try:
+        from fabricpc.bench.deep import depth_table
+
+        loaded = []
+        for folder, dirs in families:
+            try:
+                source = str(Path(folder).parent.relative_to(root))
+            except ValueError:  # the root is itself a family folder
+                source = "."
+            for d in dirs:
+                loaded.append({**load_row(d), "source": source})
+        table = depth_table(loaded)
+    except Exception as e:  # an extra view; never sink the page over it
+        return [("p", f"Accuracy against depth: skipped ({e})")]
+    if table is None:
+        return []
+    return [("h", 2, "Accuracy against depth"), ("table", *table)]
+
+
 def build_report(root) -> list:
     """The whole page as a list of simple blocks, ready for ``render``."""
     root = Path(root)
@@ -434,6 +458,7 @@ def build_report(root) -> list:
             blocks += _family_blocks(folder, row_dirs, root)
         except Exception as e:  # one odd folder must not sink the whole page
             blocks.append(("p", f"Skipped `{folder.name}`: could not read it ({e})"))
+    blocks += _depth_blocks(families, root)
     if others:
         blocks.append(("h", 2, "Other files and folders (not benchmark results)"))
         blocks.append(("list", others))

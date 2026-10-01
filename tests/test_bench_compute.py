@@ -76,3 +76,48 @@ def test_fused_conv_pool_nodes_count_the_conv_before_pooling(rng_key):
     plain, fused = counts
     assert fused.flops_per_pass == plain.flops_per_pass
     assert fused.weighted_edges == plain.weighted_edges
+
+
+def test_plain_and_lean_resnet18_count_the_same_flops(rng_key):
+    # The lean layout folds the residual add and the global pool into the
+    # last conv of each block. The convolutions are the same ones, so the
+    # count must not change. The last block's conv runs on the 4x4 map,
+    # not on the pooled (C,) latent.
+    plain = count_compute(
+        *build("cifar10-resnet18-backprop", rng_key),
+        batch_size=16,
+        algorithm="backprop",
+    )
+    lean = count_compute(
+        *build("cifar10-resnet18lean-backprop", rng_key),
+        batch_size=16,
+        algorithm="backprop",
+    )
+    assert lean.weighted_edges == plain.weighted_edges
+    assert lean.flops_per_pass == plain.flops_per_pass
+
+
+def test_fused_pool_on_an_odd_map_counts_the_real_conv_size(rng_key):
+    # Tiny-ImageNet VGG-5: conv4 takes conv3's 7x7 map, its SAME conv makes
+    # 7x7 again, and the 2x2 pool rounds that down to 3x3. The conv still
+    # runs at all 49 positions, not at the 36 that "3 times 2" would give.
+    from fabricpc.bench.compute import _flops_one_pass_for_edge
+
+    params, structure = build("tinyimagenet-vgg5-backprop", rng_key)
+    assert structure.nodes["conv4"].node_info.shape == (3, 3, 512)
+    c = count_compute(params, structure, batch_size=4, algorithm="backprop")
+    real_conv_shape = {
+        "conv1": (56, 56, 128),
+        "conv2": (28, 28, 256),
+        "conv3": (14, 14, 512),
+        "conv4": (7, 7, 512),
+        "class": (200,),
+    }
+    expected = 0
+    for edge_key, edge in structure.edges.items():
+        weight = params.nodes[edge.target].weights.get(edge_key)
+        if weight is not None:
+            expected += _flops_one_pass_for_edge(
+                weight, real_conv_shape[edge.target], 4
+            )
+    assert c.flops_per_pass == expected

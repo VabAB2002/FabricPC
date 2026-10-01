@@ -20,6 +20,7 @@ Step-by-step guides for building and training predictive coding networks.
 - [Training with ePC](17_training_with_epc.md) — Measuring the error-Hessian spectrum of your graph, choosing η and T from it, tracking stability during training, and reading the regime label before reporting a result as PC
 - [Experiment Tracking](09_experiment_tracking.md) — Monitoring training with Aim dashboards
 - [Benchmark Suite](18_benchmark_suite.md) — Reproducible benchmarks: one command per result, several seeds, paired sPC / ePC / backprop comparisons, timing, memory, compute, and a model zoo
+- [Running on a GPU Server](19_running_on_a_gpu_server.md) — Setting up a shared JupyterHub GPU, starting the benchmark run queue so it survives a closed browser, resuming it, and bringing the results home
 
 ## API Reference
 

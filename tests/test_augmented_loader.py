@@ -67,3 +67,31 @@ def test_every_epoch_gets_fresh_augmentation():
     aug = AugmentedImageLoader(ListLoader(_batches()), seed=5)
     first, second = _all(aug), _all(aug)
     assert any(not np.array_equal(x1, x2) for (x1, _), (x2, _) in zip(first, second))
+
+
+def test_crop_size_cuts_a_smaller_window_without_padding():
+    # Tiny-ImageNet in pcx: a random 56x56 window of the 64x64 image, no padding.
+    base = ListLoader(_batches(n=1))
+    aug = AugmentedImageLoader(base, flip_prob=0.0, crop_pad=0, crop_size=6, seed=3)
+    (x, _), (bx, _) = next(iter(aug)), next(iter(base))
+    assert x.shape == (4, 6, 6, 3)
+    for i in range(x.shape[0]):
+        windows = [
+            bx[i, dy : dy + 6, dx : dx + 6] for dy in range(3) for dx in range(3)
+        ]
+        assert any(np.array_equal(x[i], wnd) for wnd in windows)
+
+
+def test_crop_size_reaches_every_offset():
+    # Offsets run from 0 to 2 inclusive for a 6x6 window of an 8x8 image.
+    aug = AugmentedImageLoader(
+        ListLoader(_batches(n=50, b=8)), flip_prob=0.0, crop_pad=0, crop_size=6, seed=0
+    )
+    seen = set()
+    for (x, _), (bx, _) in zip(aug, ListLoader(_batches(n=50, b=8))):
+        for i in range(x.shape[0]):
+            for dy in range(3):
+                for dx in range(3):
+                    if np.array_equal(x[i], bx[i, dy : dy + 6, dx : dx + 6]):
+                        seen.add((dy, dx))
+    assert seen == {(dy, dx) for dy in range(3) for dx in range(3)}

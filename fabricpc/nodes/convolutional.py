@@ -31,7 +31,12 @@ import jax
 import jax.lax as lax
 import jax.numpy as jnp
 
-from fabricpc.nodes.base import NodeBase, SlotSpec, validate_windowed_output
+from fabricpc.nodes.base import (
+    NodeBase,
+    SlotSpec,
+    compute_windowed_output_shape,
+    validate_windowed_output,
+)
 from fabricpc.core.types import NodeParams, NodeState, NodeInfo
 from fabricpc.core.activations import ReLUActivation
 from fabricpc.core.energy import GaussianEnergy
@@ -248,8 +253,9 @@ class ConvPoolNode(ConvNode):
     layer, while backprop computes the same function either way.
 
     Takes ConvNode's arguments plus ``pool_window`` (default 2x2). The pool
-    stride equals the window and uses no padding, so every spatial size
-    divides by the window.
+    stride equals the window and uses no padding. When a size does not divide
+    by the window, the leftover rows and columns are dropped (7 -> 3 for a
+    2x2 pool), like PyTorch's ``MaxPool2d`` and pcx's Tiny-ImageNet VGG-5.
     """
 
     def __init__(
@@ -286,9 +292,29 @@ class ConvPoolNode(ConvNode):
         )
 
     @staticmethod
-    def _unpooled_shape(node_shape, config) -> Tuple[int, ...]:
+    def _unpooled_shape(node_shape, config, input_shapes=None) -> Tuple[int, ...]:
+        """The conv's output shape before pooling.
+
+        Normally the pooled shape times the window. If the conv really makes
+        a size one to window-1 bigger than that (an odd size under a 2x2
+        pool), the pool rounds it down, so that size is the unpooled one.
+        """
         window = config.get("pool_window", (2, 2))
         spatial = tuple(s * w for s, w in zip(node_shape[:-1], window))
+        kernel, stride = config.get("kernel_size"), config.get("stride")
+        in_shape = next(iter(input_shapes.values())) if input_shapes else None
+        # Anything malformed is left for ConvNode's check to report.
+        if (
+            in_shape is not None
+            and kernel is not None
+            and stride is not None
+            and len(kernel) == len(stride) == len(window) == len(in_shape) - 1
+        ):
+            conv_out = compute_windowed_output_shape(
+                in_shape[:-1], kernel, stride, config.get("padding")
+            )
+            if all(c // w == s for c, w, s in zip(conv_out, window, node_shape[:-1])):
+                spatial = tuple(conv_out)
         return (*spatial, node_shape[-1])
 
     @staticmethod
@@ -301,7 +327,7 @@ class ConvPoolNode(ConvNode):
     ) -> NodeParams:
         """Same kernels as ConvNode, checked against the conv's unpooled output."""
         config = config or {}
-        unpooled = ConvPoolNode._unpooled_shape(node_shape, config)
+        unpooled = ConvPoolNode._unpooled_shape(node_shape, config, input_shapes)
         return ConvNode.initialize_params(
             key, unpooled, input_shapes, weight_init, config
         )

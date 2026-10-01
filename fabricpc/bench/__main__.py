@@ -8,11 +8,14 @@
     python -m fabricpc.bench compare <row-a> <row-b> [--metric accuracy]
     python -m fabricpc.bench compare <family>     (e.g. mnist-mlp)
     python -m fabricpc.bench smoke [--floor 0.85]
+    python -m fabricpc.bench regress [row-id ...] [--out DIR]
     python -m fabricpc.bench validate [DIR]
     python -m fabricpc.bench refresh <old-dir> --out <new-dir> [--zoo DIR]
     python -m fabricpc.bench probe <row|family> [--price-per-hour P]
     python -m fabricpc.bench report <results_root> [--out report.md]
                                                    [--format md|html]
+    python -m fabricpc.bench queue <plan.json> --out DIR [--dry-run]
+                                   [--only IDS] [--continue-on-failure]
 
 Running a row writes one JSON file per trial, a manifest, ``trials.csv``
 (every trial on one line), and (with two or more good trials) a summary
@@ -20,9 +23,13 @@ with the mean and standard error. ``validate`` checks that a results
 folder is complete and consistent. ``probe`` times a few steps and
 estimates a full run's time and cost (see ``fabricpc.bench.probe``).
 ``report`` writes one readable page for a whole results folder (see
-``fabricpc.bench.report``). ``smoke`` is the short run CI uses: a small
+``fabricpc.bench.report``). ``queue`` works through a plan file of rows
+and families, one after another, and can be restarted (see
+``fabricpc.bench.queue``). ``smoke`` is the short run CI uses: a small
 row, two seeds, half an epoch, and a check that accuracy is still above a
-floor.
+floor. ``regress`` is the stronger CI check: tiny MLP, autoencoder and
+Hopfield runs with all three algorithms, each held to a fixed line (see
+``fabricpc.bench.regress``).
 
 A full run (the row's own epochs and seed count) is also checked against
 the row's expected score, when it has one, and prints PASS or FAIL. A FAIL
@@ -67,8 +74,8 @@ def _parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="python -m fabricpc.bench")
     p.add_argument(
         "target",
-        help="'list', 'compare', 'smoke', 'validate', 'refresh', 'probe', "
-        "'report', or a row id like mnist-mlp-spc",
+        help="'list', 'compare', 'smoke', 'regress', 'validate', 'refresh', "
+        "'probe', 'queue', 'report', or a row id like mnist-mlp-spc",
     )
     p.add_argument(
         "rows",
@@ -347,6 +354,30 @@ def cmd_smoke(args, command) -> int:
     return 0
 
 
+def cmd_regress(args, command) -> int:
+    """Tiny fixed-seed runs held to fixed lines (fabricpc.bench.regress)."""
+    from fabricpc.bench import regress
+
+    try:
+        checks = regress.select(regress.CI_CHECKS, args.rows)
+    except KeyError as e:
+        return _unknown_row(e.args[0])
+
+    def run_row(check):
+        return _run_row(
+            ROWS[check.row_id],
+            args.out,
+            n_trials=check.trials,
+            epochs=check.epochs,
+            warmup=2,
+            timed=5,
+            command=command,
+            in_process=args.in_process,
+        )
+
+    return regress.run_regress(args.out, run_row, checks)
+
+
 def cmd_one_trial(row, args) -> int:
     """Run a single trial here and write its file. This is what a child runs."""
     result = run_trial(
@@ -432,6 +463,10 @@ def cmd_probe(args, argv) -> int:
 
 
 def main(argv=None) -> int:
+    if (sys.argv[1:] if argv is None else list(argv))[:1] == ["queue"]:
+        from fabricpc.bench.queue import cli as queue_cli  # has its own flags
+
+        return queue_cli((sys.argv[1:] if argv is None else argv)[1:], run_main=main)
     args = _parser().parse_args(argv)
     command = [sys.executable, "-m", "fabricpc.bench", *(argv or sys.argv[1:])]
     if args.target == "list":
@@ -440,6 +475,8 @@ def main(argv=None) -> int:
         return cmd_compare(args)
     if args.target == "smoke":
         return cmd_smoke(args, command)
+    if args.target == "regress":
+        return cmd_regress(args, command)
     if args.target == "validate":
         return cmd_validate(args)
     if args.target == "refresh":

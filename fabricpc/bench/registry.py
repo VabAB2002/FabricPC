@@ -11,7 +11,10 @@ from typing import Callable, Dict, Mapping, Optional, Tuple
 import jax
 import optax
 
+from fabricpc.bench.bpe import tinyshakespeare_bpe_transformer_family
 from fabricpc.bench.cifar100 import cifar100_vgg5_family
+from fabricpc.bench.deep import fcresnet_depth_family
+from fabricpc.bench.tinyimagenet import tinyimagenet_vgg5_family
 from fabricpc.core.activations import (
     GeluActivation,
     ReLUActivation,
@@ -110,6 +113,7 @@ class BenchmarkRow:
     # Scores to evaluate instead of evaluate()'s defaults, for rows that are
     # not classifiers. PC rows also get the settled energy.
     eval_metrics: Optional[Mapping[str, training_metrics.EvalMetric]] = None
+    depth: Optional[int] = None  # residual blocks, for rows swept over depth
 
     def metrics_for(self, trainer_algorithm: str):
         """What to pass as ``evaluate(..., metrics=)``: None means its
@@ -616,15 +620,27 @@ def _hopfield_family() -> Dict[str, BenchmarkRow]:
     return hopfield_family()
 
 
+def _deep_convnet_families() -> Dict[str, BenchmarkRow]:
+    """cifar10-vgg7, cifar10-vgg9 and cifar10-resnet18lean
+    (fabricpc.bench.rows_deep_convnets)."""
+    from fabricpc.bench.rows_deep_convnets import deep_convnet_families
+
+    return deep_convnet_families()
+
+
 ROWS: Dict[str, BenchmarkRow] = {}
 ROWS.update(_mlp_family("mnist"))
 ROWS.update(_mlp_family("fashionmnist"))
 ROWS.update(_cifar10_vgg5_family())
 ROWS.update(_cifar10_resnet18_family())
 ROWS.update(cifar100_vgg5_family())
+ROWS.update(tinyimagenet_vgg5_family())
 ROWS.update(_tinyshakespeare_transformer_family())
+ROWS.update(tinyshakespeare_bpe_transformer_family())
 ROWS.update(_mnist_autoencoder_family())
 ROWS.update(_hopfield_family())
+ROWS.update(_deep_convnet_families())
+ROWS.update(fcresnet_depth_family())
 
 
 @dataclass(frozen=True)

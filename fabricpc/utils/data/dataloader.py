@@ -1,5 +1,6 @@
 import numpy as np
 from fabricpc.utils.data.data_utils import one_hot, split_np_seed
+from fabricpc.utils.data.tinyimagenet import TinyImageNetLoader  # noqa: F401
 
 try:
     from tokenizers import Tokenizer
@@ -675,15 +676,24 @@ class AugmentedImageLoader:
         base_loader: Any iterable loader yielding NHWC (images, labels) batches.
         flip_prob: Chance of mirroring each image (0.0 turns flips off).
         crop_pad: Pixels of padding for the random crop (0 turns crops off).
+        crop_size: Side of the square crop. None keeps the image's own size;
+            a smaller value cuts a random window out of the (padded) image,
+            as pcx does for Tiny-ImageNet (56x56 out of 64x64, no padding).
         seed: Random seed for reproducible augmentation.
     """
 
     def __init__(
-        self, base_loader, flip_prob: float = 0.5, crop_pad: int = 4, seed: int = None
+        self,
+        base_loader,
+        flip_prob: float = 0.5,
+        crop_pad: int = 4,
+        seed: int = None,
+        crop_size: int = None,
     ):
         self.base_loader = base_loader
         self.flip_prob = flip_prob
         self.crop_pad = crop_pad
+        self.crop_size = crop_size
         self._rng = np.random.default_rng(seed)
 
     def _augment(self, images):
@@ -691,13 +701,14 @@ class AugmentedImageLoader:
         if self.flip_prob > 0:
             flip = self._rng.random(n) < self.flip_prob
             images = np.where(flip[:, None, None, None], images[:, :, ::-1, :], images)
-        if self.crop_pad > 0:
+        if self.crop_pad > 0 or self.crop_size is not None:
             p = self.crop_pad
+            ch, cw = (h, w) if self.crop_size is None else (self.crop_size,) * 2
             padded = np.pad(images, ((0, 0), (p, p), (p, p), (0, 0)))
-            dy = self._rng.integers(0, 2 * p + 1, size=n)
-            dx = self._rng.integers(0, 2 * p + 1, size=n)
+            dy = self._rng.integers(0, h + 2 * p - ch + 1, size=n)
+            dx = self._rng.integers(0, w + 2 * p - cw + 1, size=n)
             images = np.stack(
-                [padded[i, dy[i] : dy[i] + h, dx[i] : dx[i] + w] for i in range(n)]
+                [padded[i, dy[i] : dy[i] + ch, dx[i] : dx[i] + cw] for i in range(n)]
             )
         return images
 

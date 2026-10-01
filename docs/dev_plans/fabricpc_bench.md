@@ -67,7 +67,7 @@ Tiers set the order of work, not a deadline: Tier 1 first, then Tier 2, with Tie
 | 2 | `cifar10-vgg7`, `cifar10-vgg9` | CIFAR-10 | VGG-7/9 | Depth series for the depth-ceiling story. |
 | 2 | `mnist-autoencoder` | MNIST | 784-128-32-128-784 | Faculty-advisor story; `reconstruction_mse`, `code_sparsity`, `hidden_sparsity` (built; silent = activation below 1e-6). |
 | 2 | `mnist-hopfield-retrieval` | MNIST | Storkey-Hopfield node | Associative-memory row; builder in `storkey_hopfield_demo.py`. |
-| 2 | `tinyshakespeare-transformer-bpe` | Tiny Shakespeare | transformer v2, BPE | Second perplexity row. |
+| 2 | `tinyshakespeare-bpe-transformer` | Tiny Shakespeare | transformer v2, BPE | Second perplexity row. |
 | 3 | pcx-match rows | as pcx | VGG-5 with nudging | Requires nudging in the trainer (not present at 0.6.0); separate design doc. |
 | 3 | `deep-*` | MNIST / CIFAR-10 | 100+ layer muPC chains | Extension arm from #59. |
 

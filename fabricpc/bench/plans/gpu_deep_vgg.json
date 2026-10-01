@@ -1,0 +1,11 @@
+{
+  "name": "gpu-deep-vgg",
+  "description": "The deeper VGGs (VGG-7 and VGG-9, fused pools), kept out of gpu_campaign.json on purpose. Two things come first. (1) The layer layouts need the sponsor's sign-off; if the sponsor wants a different layout (for example pcx's VGG-7 paddings), change the rows before running this. (2) At 8 settling steps sPC only lines up with backprop in the top 3 or 4 convs, so each depth starts with a short, 1-seed sPC probe. Run the probes on their own first: python -m fabricpc.bench queue fabricpc/bench/plans/gpu_deep_vgg.json --out ~/runs/gpu-deep-vgg --only cifar10-vgg7-spc,cifar10-vgg9-spc. Look at their accuracy (and tune the settling rate or step count if sPC barely learns) before running the full families.",
+  "defaults": {"trials": 5, "zoo": true},
+  "jobs": [
+    {"id": "cifar10-vgg7-spc", "epochs": 3, "trials": 1, "note": "settling probe: does sPC learn at all on VGG-7 with its current settling setup?"},
+    {"id": "cifar10-vgg9-spc", "epochs": 3, "trials": 1, "note": "settling probe: does sPC learn at all on VGG-9 with its current settling setup?"},
+    {"id": "cifar10-vgg7", "note": "full family; only after the sponsor confirms the layout and the sPC probe looks sane"},
+    {"id": "cifar10-vgg9", "note": "full family; only after the sponsor confirms the layout and the sPC probe looks sane"}
+  ]
+}
