@@ -484,3 +484,40 @@ def test_family_compare_uses_the_familys_metric_unless_told_otherwise(tmp_path, 
     )
     assert out["metric"] == "perplexity"
     assert "on perplexity" in capsys.readouterr().out
+
+
+def _capture_trial_kwargs(monkeypatch):
+    from fabricpc.bench import __main__ as cli
+
+    seen = []
+    real = cli.run_trial
+
+    def capturing(row, trial, *args, **kwargs):
+        seen.append(kwargs)
+        return real(row, trial, *args, **kwargs)
+
+    monkeypatch.setattr(cli, "run_trial", capturing)
+    return seen
+
+
+def test_fast_turns_off_the_learning_curve_and_the_diagnostics(
+    tmp_path, monkeypatch, rng_key
+):
+    register_tiny_row(monkeypatch, rng_key)
+    seen = _capture_trial_kwargs(monkeypatch)
+    assert main(_tiny_args(tmp_path, "--fast")) == 0
+
+    assert all(k["curve_batches"] == 0 for k in seen)
+    assert all(k["diagnostics"] is False for k in seen)
+    trial = json.loads((tmp_path / "tiny-mlp-spc" / "trial0.json").read_text())
+    assert trial["curve"] is None
+    assert trial["diagnostics"] is None
+
+
+def test_without_fast_the_curve_and_diagnostics_stay_on(tmp_path, monkeypatch, rng_key):
+    register_tiny_row(monkeypatch, rng_key)
+    seen = _capture_trial_kwargs(monkeypatch)
+    assert main(_tiny_args(tmp_path)) == 0
+
+    assert all(k.get("diagnostics", True) is True for k in seen)
+    assert all(k.get("curve_batches") != 0 for k in seen)

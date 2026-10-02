@@ -115,6 +115,17 @@ def _parser() -> argparse.ArgumentParser:
         "(default 10; 0 turns the curve off)",
     )
     p.add_argument(
+        "--no-diagnostics",
+        action="store_true",
+        help="skip the backprop-likeness and stiffness checks at start and end",
+    )
+    p.add_argument(
+        "--fast",
+        action="store_true",
+        help="quicker runs: no learning curve and no diagnostics "
+        "(same training, same scores)",
+    )
+    p.add_argument(
         "--in-process",
         action="store_true",
         help="run trials in this process instead of one process each",
@@ -165,10 +176,13 @@ def _run_row(
     zoo=None,
     in_process=False,
     curve_batches=None,
+    diagnostics=True,
 ):
     """Run every trial of one row, then summarize. Returns (failed, summary)."""
     run_one = run_trial if in_process else run_trial_in_child
     extra = {} if curve_batches is None else {"curve_batches": curve_batches}
+    if not diagnostics:
+        extra["diagnostics"] = False
     _clear_old_results(out, row.id, keep_trials=range(n_trials) if resume else ())
     write_manifest(
         out,
@@ -388,6 +402,7 @@ def cmd_one_trial(row, args) -> int:
         warmup_steps=args.warmup,
         timed_steps=args.timed,
         zoo_dir=args.zoo,
+        diagnostics=not args.no_diagnostics,
         **({} if args.curve_batches is None else {"curve_batches": args.curve_batches}),
     )
     return 0 if result.status == "ok" else 1
@@ -433,6 +448,7 @@ def _run_one_row(row, args, command) -> int:
         zoo=args.zoo,
         in_process=args.in_process,
         curve_batches=args.curve_batches,
+        diagnostics=not args.no_diagnostics,
     )
     band_failed = summary is not None and summary.band["status"] == "fail"
     return 1 if failed or band_failed else 0
@@ -468,6 +484,11 @@ def main(argv=None) -> int:
 
         return queue_cli((sys.argv[1:] if argv is None else argv)[1:], run_main=main)
     args = _parser().parse_args(argv)
+    if args.fast:
+        # Same training and scores; only the extras that cost time are skipped.
+        args.no_diagnostics = True
+        if args.curve_batches is None:
+            args.curve_batches = 0
     command = [sys.executable, "-m", "fabricpc.bench", *(argv or sys.argv[1:])]
     if args.target == "list":
         return cmd_list()

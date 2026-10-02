@@ -100,3 +100,20 @@ def test_an_old_result_file_is_not_mistaken_for_a_new_one(tmp_path, monkeypatch)
     result = isolate.run_trial_in_child(row, 0, tmp_path)
 
     assert result.status == "failed"
+
+
+def test_child_command_passes_no_diagnostics_only_when_asked(tmp_path):
+    off = isolate.child_command(
+        "mnist-mlp-spc",
+        0,
+        tmp_path,
+        num_epochs=None,
+        warmup_steps=5,
+        timed_steps=30,
+        diagnostics=False,
+    )
+    on = isolate.child_command(
+        "mnist-mlp-spc", 0, tmp_path, num_epochs=None, warmup_steps=5, timed_steps=30
+    )
+    assert "--no-diagnostics" in off
+    assert "--no-diagnostics" not in on
