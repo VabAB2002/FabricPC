@@ -1,6 +1,6 @@
 """Hint experiment, round 2: the hint goes into the learning signal.
 
-python -m experiments.hint.run2 --out <dir> [--seeds 1] [--epochs 3] [--depth 8] [--only a,b]
+python -m experiments.hint.run2 --out <dir> [--seeds 1] [--epochs 3] [--depths 4,8,16,32] [--dataset mnist|fashionmnist] [--only a,b]
 """
 
 import argparse
@@ -17,7 +17,9 @@ from experiments.hint.models import deep_mlp
 from fabricpc.bench.diagnostics import _flat_weights
 from fabricpc.core.inference import InferenceSGD
 from fabricpc.training.trainer import _batch_grads, convert_batch, evaluate
-from fabricpc.utils.data.dataloader import MnistLoader
+from fabricpc.utils.data.dataloader import FashionMnistLoader, MnistLoader
+
+LOADERS = {"mnist": MnistLoader, "fashionmnist": FashionMnistLoader}
 
 WIDTH, BATCH, LR, ETA = 128, 128, 1e-3, 0.1
 
@@ -65,7 +67,8 @@ def _alignment(params, structure, batch, key, grad_fn):
     }
 
 
-def run_one(name, seed, epochs, depth):
+def run_one(name, seed, epochs, depth, dataset="mnist"):
+    loader_cls = LOADERS[dataset]
     steps, mode, extra = METHODS[name]
     gkey, tkey, ekey, dkey = jax.random.split(jax.random.PRNGKey(seed), 4)
     params, structure = deep_mlp(
@@ -82,7 +85,7 @@ def run_one(name, seed, epochs, depth):
 
     start, i = time.time(), 0
     for ep in range(int(epochs)):
-        loader = MnistLoader(
+        loader = loader_cls(
             "train",
             batch_size=BATCH,
             tensor_format="flat",
@@ -96,7 +99,7 @@ def run_one(name, seed, epochs, depth):
             i += 1
     seconds = time.time() - start
 
-    test = MnistLoader("test", batch_size=BATCH, tensor_format="flat", shuffle=False)
+    test = loader_cls("test", batch_size=BATCH, tensor_format="flat", shuffle=False)
     acc = float(
         evaluate(params, structure, test, {}, ekey, algorithm="backprop")["accuracy"]
     )
@@ -106,6 +109,7 @@ def run_one(name, seed, epochs, depth):
         "method": name,
         "seed": seed,
         "depth": depth,
+        "dataset": dataset,
         "epochs": epochs,
         "accuracy": acc,
         "train_s": round(seconds, 1),
@@ -120,22 +124,27 @@ def main(argv=None):
     p.add_argument("--epochs", type=float, default=3)
     p.add_argument("--depth", type=int, default=8)
     p.add_argument("--only", default="")
+    p.add_argument("--dataset", default="mnist", choices=sorted(LOADERS))
+    p.add_argument("--depths", default="", help="comma list; overrides --depth")
     a = p.parse_args(argv)
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     names = a.only.split(",") if a.only else list(METHODS)
-    for seed in range(a.seeds):
-        for name in names:
-            path = out / f"d{a.depth}-{name}-seed{seed}.json"
-            if path.exists():
-                continue
-            row = run_one(name, seed, a.epochs, a.depth)
-            path.write_text(json.dumps(row, indent=1))
-            print(
-                f"d{a.depth} {name:11s} seed {seed}: acc {row['accuracy']:.4f}  "
-                f"cos h0 {row['cos'].get('h0', 1):.2f}  ({row['train_s']}s)",
-                flush=True,
-            )
+    depths = [int(d) for d in a.depths.split(",")] if a.depths else [a.depth]
+    for depth in depths:
+        for seed in range(a.seeds):
+            for name in names:
+                path = out / f"{a.dataset}-d{depth}-{name}-seed{seed}.json"
+                if path.exists():
+                    continue
+                row = run_one(name, seed, a.epochs, depth, a.dataset)
+                path.write_text(json.dumps(row, indent=1))
+                print(
+                    f"{a.dataset} d{depth} {name:11s} seed {seed}: "
+                    f"acc {row['accuracy']:.4f}  "
+                    f"cos h0 {row['cos'].get('h0', 1):.2f}  ({row['train_s']}s)",
+                    flush=True,
+                )
 
 
 if __name__ == "__main__":
