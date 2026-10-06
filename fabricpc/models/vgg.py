@@ -21,8 +21,13 @@ pcx's, and are noted as such in the benchmark suite.
 
 from typing import Optional, Sequence, Tuple
 
-from fabricpc.core.activations import ActivationBase, GeluActivation, SoftmaxActivation
-from fabricpc.core.energy import CrossEntropyEnergy
+from fabricpc.core.activations import (
+    ActivationBase,
+    GeluActivation,
+    IdentityActivation,
+    SoftmaxActivation,
+)
+from fabricpc.core.energy import CrossEntropyEnergy, GaussianEnergy
 from fabricpc.core.inference import InferenceBase
 from fabricpc.core.initializers import InitializerBase, KaimingInitializer
 from fabricpc.core.topology import Edge
@@ -37,6 +42,13 @@ _BLOCKS = {
 }
 
 
+# Output layer choices: (activation, energy).
+_HEADS = {
+    "ce": (SoftmaxActivation, CrossEntropyEnergy),
+    "se": (IdentityActivation, GaussianEnergy),
+}
+
+
 def create_vgg(
     depth: int,
     *,
@@ -47,6 +59,7 @@ def create_vgg(
     weight_init: Optional[InitializerBase] = None,
     scaling=None,
     fuse_pool: bool = False,
+    head: str = "ce",
 ):
     """Build a VGG graph of the given depth.
 
@@ -63,12 +76,17 @@ def create_vgg(
             node. Backprop computes the same function either way; for
             predictive coding it halves the number of latent layers, which
             state-based PC needs to train VGG-5 well.
+        head: the output layer. "ce" is a softmax with cross-entropy. "se" is
+            plain linear logits with squared error, which is what pcx's
+            nudged VGG-5 runs (PN, NN, CN) use.
 
     Returns:
         A GraphStructure ready for ``initialize_params``.
     """
     if depth not in _BLOCKS:
         raise ValueError(f"depth must be one of {sorted(_BLOCKS)}, got {depth}")
+    if head not in _HEADS:
+        raise ValueError(f"head must be one of {sorted(_HEADS)}, got {head!r}")
     activation = activation or GeluActivation()
     weight_init = weight_init or KaimingInitializer()
 
@@ -111,8 +129,8 @@ def create_vgg(
         shape=(num_classes,),
         name="class",
         flatten_input=True,
-        activation=SoftmaxActivation(),
-        energy=CrossEntropyEnergy(),
+        activation=_HEADS[head][0](),
+        energy=_HEADS[head][1](),
         weight_init=weight_init,
     )
     nodes.append(output)

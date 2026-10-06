@@ -200,3 +200,53 @@ def test_fused_pool_still_rejects_a_shape_the_pool_cannot_make():
     )
     with pytest.raises(ValueError, match="declared output spatial shape"):
         initialize_params(structure, jax.random.PRNGKey(0))
+
+
+def test_vgg_se_head_has_linear_output_and_gaussian_energy():
+    from fabricpc.core.activations import IdentityActivation
+    from fabricpc.core.energy import GaussianEnergy
+    from fabricpc.core.inference import InferenceSGD
+    from fabricpc.models.vgg import create_vgg
+
+    s = create_vgg(
+        5,
+        input_shape=(32, 32, 3),
+        num_classes=10,
+        inference=InferenceSGD(0.01, 2),
+        fuse_pool=True,
+        head="se",
+    )
+    out = s.nodes["class"].node_info
+    assert isinstance(out.activation, IdentityActivation)
+    assert isinstance(out.energy, GaussianEnergy)
+
+
+def test_vgg_ce_head_is_still_the_default():
+    from fabricpc.core.activations import SoftmaxActivation
+    from fabricpc.core.inference import InferenceSGD
+    from fabricpc.models.vgg import create_vgg
+
+    s = create_vgg(
+        5,
+        input_shape=(32, 32, 3),
+        num_classes=10,
+        inference=InferenceSGD(0.01, 2),
+        fuse_pool=True,
+    )
+    assert isinstance(s.nodes["class"].node_info.activation, SoftmaxActivation)
+
+
+def test_vgg_rejects_an_unknown_head():
+    import pytest
+
+    from fabricpc.core.inference import InferenceSGD
+    from fabricpc.models.vgg import create_vgg
+
+    with pytest.raises(ValueError):
+        create_vgg(
+            5,
+            input_shape=(32, 32, 3),
+            num_classes=10,
+            inference=InferenceSGD(0.01, 2),
+            head="mse",
+        )
