@@ -61,6 +61,8 @@ class RowSummary:
     n_params: int = 0
     num_epochs: float = 0.0
     step_memory: Optional[Dict[str, int]] = None  # same for every trial of a row
+    peak_memory_bytes: Optional[Dict[str, float]] = None # measure peak device memory; None for no trial recorded
+    checkpoints: List[Dict[str, object]] = field(default_factory=list) # successful trial model saved for zoo
     band: Optional[Dict[str, object]] = None  # filled in by fabricpc.bench.band
     schema_version: int = SCHEMA_VERSION
 
@@ -82,6 +84,14 @@ def summarize_row(results_dir, row_id: str) -> RowSummary:
         key: _stats([t[key] for t in ok])
         for key in ("step_time_ms", "compile_time_s", "train_time_s", "achieved_tflops")
     }
+    peaks = [
+        t["peak_memory_bytes"] for t in ok if t.get("peak_memory_bytes") is not None
+    ]
+    checkpoints = [
+        {"trial": t["trial"], "seed": t["seed"], "checkpoint": t["checkpoint"]}
+        for t in ok
+        if t.get("checkpoint")
+    ]
 
     summary = RowSummary(
         row_id=row_id,
@@ -95,6 +105,8 @@ def summarize_row(results_dir, row_id: str) -> RowSummary:
         n_params=ok[0]["n_params"],
         num_epochs=float(ok[0].get("num_epochs", 0.0)),
         step_memory=ok[0].get("step_memory"),
+        peak_memory_bytes=_stats(peaks) if len(peaks) >= MIN_TRIALS else None,
+        checkpoints=checkpoints,
     )
     write_summary(results_dir, summary)
     return summary
@@ -119,6 +131,7 @@ class Contrast:
     cohens_d: float
     ci95_low: float = math.nan  # 95% t interval for mean_diff
     ci95_high: float = math.nan
+    schema_version: int = SCHEMA_VERSION
 
 
 def compare_rows(results_dir, row_a: str, row_b: str, *, metric: str) -> Contrast:

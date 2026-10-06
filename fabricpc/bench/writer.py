@@ -8,8 +8,10 @@ is rebuilt from them.
 would, and lists everything that does not add up: a missing manifest, a
 file without a schema version, a trial filed under the wrong row, a seed
 the manifest never mentions, a summary or CSV that disagrees with the
-trials. An empty list means the folder is fine. A failed trial is not a
-problem; it is a recorded outcome.
+trials. It also checks the comparison files (``compare-*.json``) at the top
+of the folder for a readable body and a current schema version. An empty
+list means the folder is fine. A failed trial is not a problem; it is a
+recorded outcome.
 """
 
 import csv
@@ -177,4 +179,8 @@ def validate(results_dir) -> List[str]:
     problems: List[str] = []
     for row_dir in row_dirs:
         _validate_row(row_dir, problems)
+    for path in sorted(root.glob("compare-*.json")):
+        compare = _load(path, problems)
+        if compare is not None:
+            _check_version(path, compare, problems)
     return problems

@@ -6,6 +6,7 @@ import math
 
 import pytest
 
+from fabricpc.bench.manifest import SCHEMA_VERSION
 from fabricpc.bench.runner import TrialResult
 from fabricpc.bench.summary import compare_rows, summarize_row
 
@@ -87,6 +88,21 @@ def test_compare_two_rows_gives_a_paired_test(tmp_path):
     assert 0.0 <= c.p_value <= 1.0
     assert isinstance(c.significant_at_05, bool)
     assert not math.isnan(c.cohens_d)
+
+
+def test_compare_rows_file_carries_the_schema_version(tmp_path):
+    write_trials(tmp_path, "mnist-mlp-spc", [0.90, 0.91, 0.92], algorithm="spc")
+    write_trials(
+        tmp_path, "mnist-mlp-backprop", [0.93, 0.95, 0.94], algorithm="backprop"
+    )
+
+    c = compare_rows(tmp_path, "mnist-mlp-spc", "mnist-mlp-backprop", metric="accuracy")
+
+    on_disk = json.loads(
+        (tmp_path / "compare-mnist-mlp-spc-vs-mnist-mlp-backprop.json").read_text()
+    )
+    assert c.schema_version == SCHEMA_VERSION
+    assert on_disk["schema_version"] == SCHEMA_VERSION
 
 
 def test_compare_identical_rows_has_zero_difference(tmp_path):

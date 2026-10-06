@@ -7,7 +7,7 @@ import json
 from fabricpc.bench.manifest import SCHEMA_VERSION, write_manifest
 from fabricpc.bench.registry import ROWS
 from fabricpc.bench.runner import TrialResult
-from fabricpc.bench.summary import summarize_row
+from fabricpc.bench.summary import Contrast, summarize_row
 from fabricpc.bench.writer import validate, write_trials_csv
 
 ROW = ROWS["mnist-mlp-spc"]
@@ -153,7 +153,7 @@ def test_trials_csv_and_summary_carry_the_step_memory(tmp_path):
         _edit(
             row_dir / f"trial{i}.json",
             step_memory={"total_bytes": 1234, "temp_bytes": 1000},
-        )
+            )
     summarize_row(tmp_path, ROW.id)
     write_trials_csv(tmp_path, ROW.id)
 
@@ -203,3 +203,69 @@ def test_trials_csv_shows_where_a_followed_rate_control_ended(tmp_path):
     (line,) = list(csv.DictReader(open(path)))
     assert float(line["eta_final"]) == 0.00125
     assert line["rate_crossings"] == "0"
+
+
+# --- summary: checkpoints and peak memory ----------------------------------
+
+
+def test_summary_lists_checkpoints_and_aggregates_peak_memory(tmp_path):
+    row_dir = _write_run(tmp_path)
+    for i in (0, 1):
+        _edit(row_dir / f"trial{i}.json", checkpoint=f"zoo/trial{i}")
+    summarize_row(tmp_path, ROW.id)
+
+    summary = json.loads((row_dir / "summary.json").read_text())
+    assert [c["checkpoint"] for c in summary["checkpoints"]] == [
+        "zoo/trial0",
+        "zoo/trial1",
+    ]
+    assert [c["seed"] for c in summary["checkpoints"]] == [0, 1000]
+    assert summary["peak_memory_bytes"]["mean"] == 2048
+    assert summary["peak_memory_bytes"]["n"] == 2
+
+
+def test_summary_leaves_peak_memory_empty_when_no_trial_measured_it(tmp_path):
+    # CPU runs record peak_memory_bytes as null.
+    row_dir = _write_run(tmp_path)
+    for i in (0, 1):
+        _edit(row_dir / f"trial{i}.json", peak_memory_bytes=None)
+    summarize_row(tmp_path, ROW.id)
+
+    summary = json.loads((row_dir / "summary.json").read_text())
+    assert summary["peak_memory_bytes"] is None
+    assert summary["checkpoints"] == []
+
+
+# --- compare files ---------------------------------------------------------
+
+
+def test_a_compare_file_without_a_schema_version_is_reported(tmp_path):
+    _write_run(tmp_path)
+    (tmp_path / "compare-x.json").write_text(json.dumps({"contrasts": []}))
+    assert any(
+        "compare-x.json" in p and "schema_version" in p for p in validate(tmp_path)
+    )
+
+
+def test_a_compare_file_with_the_current_version_is_fine(tmp_path):
+    _write_run(tmp_path)
+    (tmp_path / "compare-x.json").write_text(
+        json.dumps({"schema_version": SCHEMA_VERSION, "contrasts": []})
+    )
+    assert validate(tmp_path) == []
+
+
+def test_a_contrast_carries_the_schema_version():
+    contrast = Contrast(
+        row_a="a",
+        row_b="b",
+        metric="accuracy",
+        n=2,
+        mean_diff=0.0,
+        se_diff=0.0,
+        t_statistic=0.0,
+        p_value=1.0,
+        significant_at_05=False,
+        cohens_d=0.0,
+    )
+    assert dataclasses.asdict(contrast)["schema_version"] == SCHEMA_VERSION

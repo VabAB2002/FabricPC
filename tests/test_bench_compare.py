@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 
 from fabricpc.bench.compare import arm_for_row, compare_family, planned_results
+from fabricpc.bench.manifest import SCHEMA_VERSION
 from fabricpc.bench.registry import COMPARISONS, ROWS
 from fabricpc.bench.runner import run_trial
 from fabricpc.experiments import PlannedMultiContrastExperiment
@@ -28,7 +29,7 @@ def test_every_model_family_has_a_three_way_comparison():
 
 @pytest.mark.parametrize("algorithm", ["spc", "backprop"])
 def test_our_trial_trains_exactly_what_the_experiment_framework_trains(
-    tmp_path, rng_key, algorithm
+        tmp_path, rng_key, algorithm
 ):
     # Same seed, same data, same keys: the accuracy must match to the bit.
     row = ROWS[f"mnist-mlp-{algorithm}"]
@@ -163,6 +164,7 @@ def test_compare_family_writes_all_three_contrasts(tmp_path):
 
     on_disk = json.loads((tmp_path / "compare-mnist-mlp.json").read_text())
     assert on_disk == out
+    assert on_disk["schema_version"] == SCHEMA_VERSION
     assert on_disk["metric"] == "accuracy"
     assert on_disk["seeds"] == [0, 1000, 2000]
     pairs = [(c["arm_a"], c["arm_b"]) for c in on_disk["contrasts"]]

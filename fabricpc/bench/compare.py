@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Optional, Sequence, Tuple
 
 from fabricpc.bench.ci import paired_ci95
+from fabricpc.bench.manifest import SCHEMA_VERSION
 from fabricpc.bench.registry import BenchmarkRow, Comparison
 from fabricpc.bench.runner import _TRAINER_ALGORITHM
 from fabricpc.experiments import ExperimentArm, PlannedMultiContrastResults
@@ -32,7 +33,7 @@ MIN_TRIALS = 2
 
 
 def arm_for_row(
-    row: BenchmarkRow, *, steps_per_epoch: int, num_epochs: Optional[float] = None
+        row: BenchmarkRow, *, steps_per_epoch: int, num_epochs: Optional[float] = None
 ) -> ExperimentArm:
     """The row as an arm of PlannedMultiContrastExperiment.
 
@@ -86,11 +87,11 @@ def _pair_on_shared_seeds(results_dir, rows: Sequence[str]):
 
 
 def planned_results(
-    results_dir,
-    *,
-    rows: Sequence[str],
-    contrasts: Sequence[Tuple[str, str]],
-    metric: str,
+        results_dir,
+        *,
+        rows: Sequence[str],
+        contrasts: Sequence[Tuple[str, str]],
+        metric: str,
 ) -> PlannedMultiContrastResults:
     """Load finished trials into the framework's results object.
 
@@ -153,6 +154,7 @@ def compare_family(results_dir, comparison: Comparison, *, metric: str) -> dict:
         metric=metric,
     )
     out = {
+        "schema_version": SCHEMA_VERSION,
         "comparison": comparison.id,
         "metric": metric,
         "seeds": res.seeds,
