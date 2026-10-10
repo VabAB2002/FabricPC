@@ -14,7 +14,11 @@ the page shows:
   the backprop row, the band verdict, and how PC-like the runs ended up
   (ePC regime bands over the seeds, and the cosine between PC's weight
   update and backprop's),
-- the paired comparisons, with the p-value and a plain yes/no,
+- the cost of each row: PC's matmuls per update over backprop's, achieved
+  TFLOP/s, the compiled step's memory, compile time, and the learning curve
+  averaged over seeds as a one-line text chart,
+- the paired comparisons, with the p-value, the Holm-adjusted p-value, the
+  effect size (Hedges' g_z) and a plain yes/no on the adjusted p,
 - where the numbers came from (git sha, hardware, date), and
 - any NOTES.md in that folder, quoted.
 
@@ -154,17 +158,72 @@ def _from_trials(row_dir: Path, notes: list):
     return len(ok), len(records) - len(ok), values, steps
 
 
-def _pc_likeness(row_dir: Path, notes: list) -> str:
-    """How PC-like the row's runs ended up, from its trial files.
-
-    Read from the trials rather than summary.json, so folders written
-    before the summary carried it show it too.
-    """
+def _read_trials(row_dir: Path, notes: list) -> list:
     trials = []
     for path in sorted(row_dir.glob("trial*.json")):
         data = _read_json(path, notes)
         if isinstance(data, dict):
             trials.append(data)
+    return trials
+
+
+SPARK = "▁▂▃▄▅▆▇█"
+SPARK_WIDTH = 20  # at most this many characters per curve
+# The commit that made timing measure the step train() runs; sPC step times
+# from before it are about twice too slow (see the guide).
+TIMING_FIX = "2026-10-10"
+
+
+def _curve_cell(trials: list, metric) -> str:
+    """The learning curve, averaged over seeds, as a one-line text chart."""
+    by_epoch: dict = {}
+    for t in trials:
+        if t.get("status", "ok") != "ok":
+            continue
+        for point in t.get("curve") or []:
+            value = point.get(metric) if isinstance(point, dict) else None
+            if isinstance(value, (int, float)) and value == value:
+                by_epoch.setdefault(point.get("epoch"), []).append(value)
+    if len(by_epoch) < 2:
+        return "-"
+    means = [statistics.fmean(v) for _, v in sorted(by_epoch.items())]
+    first, last = means[0], means[-1]
+    if len(means) > SPARK_WIDTH:  # average neighbouring epochs down to the width
+        edges = [round(i * len(means) / SPARK_WIDTH) for i in range(SPARK_WIDTH + 1)]
+        means = [statistics.fmean(means[a:b]) for a, b in zip(edges, edges[1:])]
+    low, high = min(means), max(means)
+    span = (high - low) or 1.0
+    bars = "".join(SPARK[round((m - low) / span * (len(SPARK) - 1))] for m in means)
+    return f"{bars} {first:.2f} → {last:.2f}"
+
+
+def _timed_before_fix(trials: list) -> bool:
+    """True when a trial's step time was measured before the timing fix.
+
+    The fix came with schema 4. A refreshed trial keeps its first version
+    in its refresh record.
+    """
+    for t in trials:
+        version = t.get("schema_version")
+        for record in t.get("refresh") or []:
+            for change in record.get("changes") or []:
+                if change.get("field") == "schema_version":
+                    version = change.get("old")
+                    break
+            else:
+                continue
+            break
+        if isinstance(version, int) and version < 4:
+            return True
+    return False
+
+
+def _pc_likeness(trials: list, notes: list) -> str:
+    """How PC-like the row's runs ended up, from its trial files.
+
+    Read from the trials rather than summary.json, so folders written
+    before the summary carried it show it too.
+    """
     try:
         reg = regime_summary(trials)
     except (KeyError, TypeError, ValueError):
@@ -221,8 +280,38 @@ def load_row(row_dir: Path, metric=None) -> dict:
             row["stats"][name] = {"mean": mean, "se": se, "n": len(vals)}
         row["step_ms"] = _mean_se(steps)[0]
     row["metric"] = _pick_metric(row, metric)
-    row["pc_like"] = _pc_likeness(row_dir, notes)
+    trials = _read_trials(row_dir, notes)
+    row["pc_like"] = _pc_likeness(trials, notes)
+    row["curve"] = _curve_cell(trials, row["metric"])
+    row["cost"] = _cost(summary if isinstance(summary, dict) else {})
+    if row["algorithm"] == "spc" and _timed_before_fix(trials):
+        notes.append(
+            f"step time timed before the {TIMING_FIX} fix: sPC steps were "
+            "measured about twice too slow; rerun the row to re-measure"
+        )
     return row
+
+
+def _cost(summary: dict) -> dict:
+    """What one update costs, from the summary (empty for older folders)."""
+    timing = summary.get("timing") or {}
+    compute = summary.get("compute") or {}
+    memory = summary.get("step_memory") or {}
+
+    def mean(key):
+        value = (timing.get(key) or {}).get("mean")
+        return value if isinstance(value, (int, float)) else None
+
+    return {
+        "ratio": compute.get("pc_to_backprop_ratio"),
+        "tflops": mean("achieved_tflops"),
+        "compile_s": mean("compile_time_s"),
+        "memory_mb": (
+            memory["total_bytes"] / 1e6
+            if isinstance(memory.get("total_bytes"), (int, float))
+            else None
+        ),
+    }
 
 
 def _pick_metric(row: dict, wanted):
@@ -355,6 +444,28 @@ def _family_blocks(folder: Path, row_dirs: list, root: Path) -> list:
         head = ["algorithm", "row", "seeds", "metric", "mean ± SE [95% CI]"]
         head += ["step ms", "vs backprop", "band", "PC-likeness at end"]
         blocks.append(("table", head, table))
+        blocks.append(("h", 3, "Cost and learning"))
+        cost = []
+        for row in rows.values():
+            c = row["cost"]
+            ratio = c["ratio"]
+            cost.append(
+                [
+                    row["id"],
+                    (
+                        f"{ratio:.2f}x"
+                        if isinstance(ratio, (int, float)) and ratio == ratio
+                        else "-"
+                    ),
+                    _fmt(c["tflops"], 2),
+                    f"{c['memory_mb']:.0f} MB" if c["memory_mb"] is not None else "-",
+                    _fmt(c["compile_s"], 1),
+                    row["curve"],
+                ]
+            )
+        head = ["row", "PC/BP matmuls per update", "TFLOP/s", "step memory"]
+        head += ["compile s", "learning curve (each row's metric, per epoch)"]
+        blocks.append(("table", head, cost))
     if contrasts:
         blocks.append(("h", 3, "Paired comparisons"))
         ctable = []

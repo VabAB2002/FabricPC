@@ -138,6 +138,17 @@ At 0% any network that keeps the probe's signs is perfect, so p00 only checks th
 
 `compare patterns64-hopfield` pairs the rows on `bit_accuracy_p20`; pass `--metric exact_recall_p20` (or any score above) to compare on another. Code: `fabricpc/bench/rows_hopfield.py`.
 
+## The report page
+
+`python -m fabricpc.bench report results --out report.md` (or `--format html`) writes one page for a results folder, however nested. Per family it shows:
+
+- a table of rows with the metric (mean ± SE and 95% CI), step time, slowdown against backprop, the band verdict, and how PC-like the runs ended up (ePC bands over the seeds, cosine to backprop's update);
+- a "Cost and learning" table: PC's matmuls per update over backprop's, achieved TFLOP/s, step memory, compile time, and the learning curve averaged over seeds as a one-line text chart (`▁▃▅▇█ 0.49 → 0.87`, at most 20 characters);
+- the paired comparisons with the p-value, the Holm-adjusted p, Hedges' g_z and a plain yes/no on the adjusted p;
+- where the numbers came from, any `NOTES.md`, and what was skipped. sPC rows whose step time was measured before the 2026-10-10 timing fix are listed there, since their step time is about twice too slow.
+
+The report never stops on a messy folder; it reads what it can and says what it skipped.
+
 ## Estimating time and cost before a run
 
 `probe` builds a row's model and loaders, times a few training steps and evaluation batches (compile timed on its own, median of the steps), and multiplies out the full run instead of doing it. It counts two compiles per seed, because a real trial compiles the step once for its timing pass and again inside `train()`:

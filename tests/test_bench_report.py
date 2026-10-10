@@ -355,3 +355,78 @@ def test_a_diverged_row_and_a_failed_seed_do_not_break_the_page(tmp_path):
 
     assert "cifar10-vgg5-epc" in page
     assert "+2 failed" in page
+
+
+# --- cost and learning curve ------------------------------------------------
+
+
+def _with_cost(row_dir, *, ratio, tflops, mem_bytes, compile_s):
+    summary = json.loads((row_dir / "summary.json").read_text())
+    summary["compute"] = {"pc_to_backprop_ratio": ratio, "infer_steps": 8}
+    summary["timing"]["achieved_tflops"] = _stats(tflops, 0.01, 3)
+    summary["timing"]["compile_time_s"] = _stats(compile_s, 0.1, 3)
+    summary["step_memory"] = {"total_bytes": mem_bytes}
+    (row_dir / "summary.json").write_text(json.dumps(summary))
+
+
+def _write_trial(row_dir, i, *, algorithm, curve=None, schema=4):
+    data = {
+        "row_id": row_dir.name,
+        "trial": i,
+        "seed": 1000 * i,
+        "algorithm": algorithm,
+        "status": "ok",
+        "metrics": {"accuracy": 0.8},
+        "curve": curve,
+        "schema_version": schema,
+    }
+    (row_dir / f"trial{i}.json").write_text(json.dumps(data))
+
+
+def test_the_cost_table_shows_work_memory_and_compile(tmp_path):
+    family = tmp_path / "cifar10-vgg5"
+    row = _write_row(family, "cifar10-vgg5-spc", "spc", acc=0.84, se=0.002)
+    _with_cost(row, ratio=5.67, tflops=4.9, mem_bytes=1_478_000_000, compile_s=3.2)
+
+    page = render(build_report(tmp_path), "md")
+
+    assert "Cost and learning" in page
+    assert "5.67x" in page  # PC matmuls per update over backprop's
+    assert "1478 MB" in page
+    assert "4.90" in page and "3.2" in page
+
+
+def test_the_learning_curve_is_drawn_from_the_trials(tmp_path):
+    family = tmp_path / "mnist-mlp"
+    row = _write_row(family, "mnist-mlp-spc", "spc", acc=0.98, se=0.001)
+    curve = [{"epoch": e, "accuracy": a} for e, a in enumerate([0.1, 0.5, 0.9, 0.95])]
+    for i in range(2):
+        _write_trial(row, i, algorithm="spc", curve=curve)
+
+    page = render(build_report(tmp_path), "md")
+
+    assert "▁" in page and "█" in page  # lowest and highest point
+    assert "0.10 → 0.95" in page
+
+
+def test_spc_step_times_from_before_the_timing_fix_are_flagged(tmp_path):
+    family = tmp_path / "mnist-mlp"
+    row = _write_row(family, "mnist-mlp-spc", "spc", acc=0.98, se=0.001)
+    _write_trial(row, 0, algorithm="spc", schema=2)
+
+    page = render(build_report(tmp_path), "md")
+
+    assert "timed before the 2026-10-10 fix" in page
+
+
+def test_a_long_curve_is_squeezed_to_twenty_characters(tmp_path):
+    family = tmp_path / "cifar10-vgg5"
+    row = _write_row(family, "cifar10-vgg5-spc", "spc", acc=0.84, se=0.002)
+    curve = [{"epoch": e, "accuracy": e / 50} for e in range(1, 51)]
+    _write_trial(row, 0, algorithm="spc", curve=curve)
+
+    page = render(build_report(tmp_path), "md")
+
+    bars = next(w for line in page.splitlines() for w in line.split() if "▁" in w)
+    assert len(bars) == 20
+    assert "0.02 → 1.00" in page
