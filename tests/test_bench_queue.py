@@ -492,3 +492,63 @@ def test_two_jobs_with_the_same_row_keep_separate_weights(tmp_path):
     ]
 
     assert zoo_of[0] != zoo_of[1]
+
+
+# --- getting ready for the GPU ----------------------------------------------
+
+
+def test_validate_plan_warns_about_jobs_that_get_no_verdict(tmp_path, capsys):
+    # A pass/fail verdict needs the row's full epochs and at least 3 seeds.
+    path = write_plan(
+        tmp_path,
+        [
+            {"id": "mnist-mlp", "trials": 2},
+            {"id": "fashionmnist-mlp", "epochs": 1},
+            {"id": "mnist-autoencoder"},
+        ],
+    )
+
+    code = queue.cli(["--validate-plan", str(path)], run_main=None)
+
+    out = capsys.readouterr().out
+    assert code == 0  # warnings, not errors
+    assert "mnist-mlp: 2 seeds" in out and "no pass/fail verdict" in out
+    assert "fashionmnist-mlp: 1 epochs" in out
+    assert "mnist-autoencoder" not in out.split("warnings")[-1]
+
+
+def test_probe_without_dry_run_times_rows_and_trains_nothing(tmp_path, monkeypatch):
+    path = write_plan(tmp_path, [{"id": "mnist-mlp-spc"}])
+    timed = []
+    monkeypatch.setattr(
+        queue, "_live_probes", lambda plan, out: timed.append(plan.name) or []
+    )
+
+    def refuse(argv):
+        raise AssertionError("--probe must not start training")
+
+    code = queue.cli([str(path), "--probe", "--out", str(tmp_path)], run_main=refuse)
+
+    assert code == 0
+    assert timed == ["test-plan"]
+
+
+def test_rehearse_runs_every_job_tiny_and_capped(tmp_path):
+    path = write_plan(
+        tmp_path,
+        [{"id": "mnist-mlp", "trials": 10}, {"id": "cifar10-vgg5-spc", "epochs": 50}],
+        defaults={"zoo": True},
+    )
+    out = tmp_path / "out"
+    fake = FakeRun(out)
+
+    code = queue.cli([str(path), "--rehearse", "--out", str(out)], run_main=fake)
+
+    assert code == 0
+    assert [c[0] for c in fake.calls] == ["mnist-mlp", "cifar10-vgg5-spc"]
+    for argv in fake.calls:
+        assert argv[argv.index("--trials") + 1] == "2"
+        assert float(argv[argv.index("--epochs") + 1]) <= 1e-3
+        assert "--fast" in argv
+        assert int(argv[argv.index("--max-eval-batches") + 1]) <= 4
+        assert "--zoo" in argv  # the zoo path is rehearsed too

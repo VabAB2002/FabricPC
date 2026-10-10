@@ -90,3 +90,10 @@ def test_every_verdict_says_the_band_rule_is_waiting_for_sign_off():
     v = check_band(_row(0.98), _summary(mean=0.98, se=0.001))
     assert v.pending_signoff is True
     assert v.rule == "max(floor, 2*SE)"
+
+
+def test_a_run_scored_on_part_of_the_test_set_is_not_compared():
+    s = dataclasses.replace(_summary(mean=0.98, se=0.001), eval_batches_capped=2)
+    v = check_band(_row(0.98), s)
+    assert v.status == "not_comparable"
+    assert "test" in v.reason

@@ -17,9 +17,11 @@ time it twice, once on 1 batch and once on 1 + k batches, and the difference
 gives the per-batch time; what is left over is the compile. Each is the
 best of two tries, since compile times wobble.
 
-What is not counted: the inference-rate safety net's probes (the registry
-says about a tenth extra on PC rows), the diagnostics, and starting one
-Python process per trial. So read the estimate as a floor, not a promise.
+The extras a real trial pays are timed too: the diagnostics at the start
+and the end of the trial (and the ePC regime there), and the safety net's
+stiffness probe, which runs every ``every`` updates. What is not counted:
+starting one Python process per trial, and the recompile each time the
+safety net changes the rate. So read the estimate as a floor, not a promise.
 The numbers only hold for the hardware they were measured on, so the report
 says which device that was.
 """
@@ -43,7 +45,11 @@ from fabricpc.bench.runner import (
     DEFAULT_CURVE_BATCHES,
     total_train_steps,
 )
+from fabricpc.bench.diagnostics import diagnose
+from fabricpc.bench.measure import epc_regime
 from fabricpc.training import evaluate
+from fabricpc.training.rate_control import InferenceRateController
+from fabricpc.training.trainer import build_clamps, convert_batch
 
 # What a Lightning AI T4 actually cost us per hour. Pass --price-per-hour
 # for any other machine.
@@ -59,9 +65,8 @@ TRIAL_TIMING_STEPS = 1 + 5 + 30
 SLOW_STEP_MS = 500.0
 
 NOT_COUNTED = (
-    "inference-rate safety-net probes (about +10% on PC rows)",
-    "diagnostics at the start and end of a trial",
     "starting one Python process per trial",
+    "the recompile each time the safety net changes the inference rate",
 )
 
 
@@ -79,6 +84,11 @@ class RowProbe:
     eval_compile_s: Optional[float]  # paid on every evaluate() call
     train_s_per_seed: float
     eval_s_per_seed: float
+    # Diagnostics (and the ePC regime) at the start and the end of a trial.
+    diagnostics_s_per_seed: float
+    # The safety net's stiffness probes: how many, and their time in total.
+    safety_net_probes: int
+    safety_net_s_per_seed: float
     seconds_per_seed: float
     total_seconds: float
     cost_usd: float
@@ -150,6 +160,28 @@ def _time_eval(row, params, structure, test_loader, key, algorithm, k, slow):
     return per_batch * 1000.0, max(one - per_batch, 0.0)
 
 
+def _seconds(fn) -> float:
+    """Wall-clock of one call, waiting for the device to finish."""
+    t0 = time.perf_counter()
+    jax.block_until_ready(fn())
+    return time.perf_counter() - t0
+
+
+def _safety_net_probe_s(row, params, structure, probe_batch, key) -> float:
+    """Seconds for one stiffness probe once compiled, the way a trial's
+    InferenceRateController runs it (the first probe pays the compile)."""
+    controller = InferenceRateController(
+        structure,
+        build_clamps(convert_batch(probe_batch), structure, clamp_target=True),
+        target=row.rate_control.target,
+        every=row.rate_control.every,
+        window=row.rate_control.window,
+        key=key,
+    )
+    _seconds(lambda: controller.start(params))  # compile
+    return _seconds(lambda: controller.start(params))
+
+
 def probe_row(
     row,
     *,
@@ -160,6 +192,7 @@ def probe_row(
     eval_batches: int = DEFAULT_EVAL_BATCHES,
     price_per_hour: float = DEFAULT_PRICE_PER_HOUR,
     seed: int = 0,
+    diagnostics: bool = True,
 ) -> RowProbe:
     """Time a few steps of one row and work out what a full run would cost."""
     trials = int(trials if trials is not None else row.n_trials)
@@ -212,7 +245,25 @@ def probe_row(
         batches = passes * test_batches + curve_calls * curve_batches
         eval_s = calls * eval_compile + batches * eval_ms / 1000.0
 
-    per_seed = train_s + eval_s
+    probe_batch = next(iter(train_loader))
+    diag_s = 0.0
+    if diagnostics:
+        # Each is read twice a trial, and each call compiles its own function.
+        diag_s = 2 * _seconds(
+            lambda: diagnose(params, structure, probe_batch, timing_key, row.algorithm)
+        )
+    if row.algorithm == "epc":  # the regime is read on ePC rows only
+        diag_s += 2 * _seconds(
+            lambda: epc_regime(params, structure, probe_batch, timing_key)
+        )
+    n_probes, net_s = 0, 0.0
+    if row.rate_control is not None:
+        n_probes = total_steps // row.rate_control.every + 1
+        net_s = n_probes * _safety_net_probe_s(
+            row, params, structure, probe_batch, timing_key
+        )
+
+    per_seed = train_s + eval_s + diag_s + net_s
     total = trials * per_seed
     return RowProbe(
         row_id=row.id,
@@ -227,6 +278,9 @@ def probe_row(
         eval_compile_s=eval_compile,
         train_s_per_seed=train_s,
         eval_s_per_seed=eval_s,
+        diagnostics_s_per_seed=diag_s,
+        safety_net_probes=n_probes,
+        safety_net_s_per_seed=net_s,
         seconds_per_seed=per_seed,
         total_seconds=total,
         cost_usd=total / 3600.0 * price_per_hour,

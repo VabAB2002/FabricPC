@@ -154,6 +154,9 @@ class TrialResult:
     compute: Dict[str, float] = field(default_factory=dict)
     achieved_tflops: float = 0.0  # flops per update / measured step time
     checkpoint: Optional[str] = None  # zoo path of the trained params
+    # Set when the test set was cut to this many batches (a rehearsal run):
+    # the scores are then not test-set scores.
+    eval_batches_capped: Optional[int] = None
     status: str = "ok"
     error: Optional[str] = None
     schema_version: int = SCHEMA_VERSION
@@ -172,12 +175,15 @@ def run_trial(
     zoo_dir=None,
     curve_batches: int = DEFAULT_CURVE_BATCHES,
     diagnostics: bool = True,
+    max_eval_batches: Optional[int] = None,
 ) -> TrialResult:
     """Train the row's model once, measure it, and write ``trial<i>.json``.
 
     ``loaders`` lets a test pass a small fake dataset. ``num_epochs`` lets a
     caller shorten a run. Both default to what the row says. ``zoo_dir``
-    saves the trained params there; None skips saving.
+    saves the trained params there; None skips saving. ``max_eval_batches``
+    scores only that many test batches, for rehearsing a run cheaply; the
+    trial records it in ``eval_batches_capped``.
     """
     seed = seed_for_trial(trial, seed_offset)
     out_path = Path(out_dir) / row.id / f"trial{trial}.json"
@@ -219,6 +225,8 @@ def run_trial(
             else None
         )
         train_loader, test_loader = loaders or row.loader_factory(seed)
+        if max_eval_batches is not None:
+            test_loader = _BatchList(itertools.islice(test_loader, max_eval_batches))
 
         compute = count_compute(
             params, structure, batch_size=row.batch_size, algorithm=row.algorithm
@@ -352,6 +360,7 @@ def run_trial(
             compute=asdict(compute),
             achieved_tflops=achieved_tflops,
             checkpoint=checkpoint,
+            eval_batches_capped=max_eval_batches,
         )
     except Exception:  # noqa: BLE001 - a failed trial must still be recorded
         result = TrialResult(
@@ -361,6 +370,7 @@ def run_trial(
             algorithm=row.algorithm,
             n_params=0,
             num_epochs=epochs,
+            eval_batches_capped=max_eval_batches,
             status="failed",
             error=traceback.format_exc(),
         )

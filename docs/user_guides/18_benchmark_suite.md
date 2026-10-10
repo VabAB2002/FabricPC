@@ -146,13 +146,21 @@ python -m fabricpc.bench probe mnist-mlp                        # every row of a
 python -m fabricpc.bench probe cifar10-vgg5-spc --trials 5 --epochs 50 --price-per-hour 1.06
 ```
 
-It prints, per row, the step time, steps per epoch, time per seed and for all seeds, and the family total with its cost (hours times `--price-per-hour`, default 1.06 USD, what a Lightning T4 cost us). `--trials` and `--epochs` default to the row's own; `--warmup` and `--timed` set how many steps are timed (default 2 and 10). With `--out DIR` it also writes `probe-<row-or-family>.json` there. The numbers only hold for the device they were measured on, which the report names, so probe on the machine you will pay for. The estimate leaves out the rate safety net's probes (about a tenth more on PC rows), the diagnostics and process start-up, so treat it as a floor.
+It prints, per row, the step time, steps per epoch, time per seed and for all seeds, and the family total with its cost (hours times `--price-per-hour`, default 1.06 USD, what a Lightning T4 cost us). `--trials` and `--epochs` default to the row's own; `--warmup` and `--timed` set how many steps are timed (default 2 and 10). With `--out DIR` it also writes `probe-<row-or-family>.json` there. The numbers only hold for the device they were measured on, which the report names, so probe on the machine you will pay for. It also times what a real trial adds on top of training: the diagnostics at the start and end (and the ePC regime), left out with `--fast` or `--no-diagnostics` as in a real run, and the safety net's stiffness probes, one every `every` updates. It leaves out process start-up and the recompile when the safety net changes the rate, so treat it as a floor. Estimates made before 2026-10-10 timed a heavier step than training runs (sPC about twice too slow) and left the extras out: probe again on the GPU before trusting them.
 
 ## Running on a GPU in the cloud
 
 `scripts/lightning/make_job.sh` builds the command for a Lightning AI job that runs one benchmark at a pinned commit with `--zoo`, and `scripts/lightning/fetch_results.sh` brings the results back and runs `validate`. Long runs can be split across jobs with `--resume`.
 
-On a shared GPU machine (a JupyterHub), `python -m fabricpc.bench queue <plan.json> --out DIR` works through a list of rows and families in order, with `--resume`, a `queue-status.json` after every job, and `validate` plus `report` at the end; `fabricpc/bench/plans/gpu_campaign.json` is the waiting GPU work, and `gpu_deep_vgg.json` holds VGG-7/9 until their layouts are signed off. See [Running on a GPU Server](19_running_on_a_gpu_server.md).
+On a shared GPU machine (a JupyterHub), `python -m fabricpc.bench queue <plan.json> --out DIR` works through a list of rows and families in order, with `--resume`, a `queue-status.json` after every job, and `validate` plus `report` at the end; `fabricpc/bench/plans/gpu_campaign.json` is the waiting GPU work, and `gpu_deep_vgg.json` holds VGG-7/9 until their layouts are signed off. Before paying for the hours:
+
+```bash
+python -m fabricpc.bench queue plans/gpu_campaign.json --validate-plan       # unknown ids, and jobs that get no pass/fail verdict
+python -m fabricpc.bench queue plans/gpu_campaign.json --probe --out probes  # time every row on this machine, train nothing
+python -m fabricpc.bench queue plans/gpu_campaign.json --rehearse --out rehearsal  # every job for a step or two
+```
+
+`--validate-plan` warns about jobs that run fewer than 3 seeds or a shortened epoch count, since those get no verdict. `--probe` on its own times every row and prints the estimate; it never starts the campaign. `--rehearse` runs every job with 2 seeds, a step or two of training (`--epochs 0.0001`), `--fast`, and 2 test batches (`--max-eval-batches 2`), so a missing dataset, a shape error or a zoo problem shows up on a laptop instead of on paid time. Its trials record `eval_batches_capped` and never get a verdict. See [Running on a GPU Server](19_running_on_a_gpu_server.md).
 
 ## Fixing old results without retraining
 

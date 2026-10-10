@@ -49,7 +49,12 @@ def test_probe_row_counts_steps_and_multiplies_them_out(rng_key):
     assert p.train_s_per_seed == pytest.approx(
         (12 + 36) * p.step_time_ms / 1000.0 + 2 * p.compile_time_s
     )
-    assert p.seconds_per_seed == pytest.approx(p.train_s_per_seed + p.eval_s_per_seed)
+    assert p.seconds_per_seed == pytest.approx(
+        p.train_s_per_seed
+        + p.eval_s_per_seed
+        + p.diagnostics_s_per_seed
+        + p.safety_net_s_per_seed
+    )
     assert p.total_seconds == pytest.approx(3 * p.seconds_per_seed)
     assert p.cost_usd == pytest.approx(p.total_seconds / 3600.0 * 2.0)
 
@@ -137,3 +142,31 @@ def test_cli_probe_without_out_writes_nothing(tmp_path, monkeypatch, rng_key):
 def test_cli_probe_unknown_target_exits_2(capsys):
     assert main(["probe", "no-such-row"]) == 2
     assert "no-such-row" in capsys.readouterr().err
+
+
+def test_probe_counts_the_diagnostics_and_the_safety_net_checks(rng_key):
+    # A real PC trial reads the diagnostics at the start and the end, and
+    # the safety net measures the stiffness every `every` updates; both cost
+    # time a step count alone misses.
+    row = tiny_row(rng_key, "spc", n_batches=6)
+
+    p = probe_row(row, trials=1, epochs=2, warmup=1, timed=2)
+
+    assert p.diagnostics_s_per_seed > 0
+    assert p.safety_net_probes == 12 // row.rate_control.every + 1
+    assert p.safety_net_s_per_seed > 0
+
+
+def test_probe_leaves_out_what_a_run_will_skip(rng_key):
+    pc = probe_row(
+        tiny_row(rng_key, "spc"),
+        trials=1,
+        epochs=1,
+        warmup=1,
+        timed=1,
+        diagnostics=False,
+    )
+    bp = probe_row(tiny_row(rng_key, "backprop"), trials=1, epochs=1, warmup=1, timed=1)
+
+    assert pc.diagnostics_s_per_seed == 0.0  # run with --no-diagnostics / --fast
+    assert bp.safety_net_probes == 0 and bp.safety_net_s_per_seed == 0.0

@@ -626,3 +626,27 @@ def test_regress_without_out_writes_to_its_own_folder(monkeypatch):
     cli_main(["regress"])
 
     assert seen["out"] == "regress-results"
+
+
+def test_a_capped_evaluation_is_recorded_on_the_trial(tmp_path, monkeypatch, rng_key):
+    # Rehearsals score only a few test batches; the trial says so, so the
+    # number is never mistaken for a real test-set score.
+    register_tiny_row(monkeypatch, rng_key)
+    quick = ["--epochs", "0.1", "--warmup", "1", "--timed", "1", "--fast"]
+
+    code = main(
+        [
+            "tiny-mlp-spc",
+            "--out",
+            str(tmp_path),
+            "--trials",
+            "2",
+            "--max-eval-batches",
+            "1",
+            *quick,
+        ]
+    )
+
+    assert code == 0
+    trial = json.loads((tmp_path / "tiny-mlp-spc" / "trial0.json").read_text())
+    assert trial["eval_batches_capped"] == 1

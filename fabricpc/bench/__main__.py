@@ -134,6 +134,12 @@ def _parser() -> argparse.ArgumentParser:
         "(same training, same scores)",
     )
     p.add_argument(
+        "--max-eval-batches",
+        type=int,
+        help="score only this many test batches (for rehearsals; the trial "
+        "records it and the scores are not test-set scores)",
+    )
+    p.add_argument(
         "--in-process",
         action="store_true",
         help="run trials in this process instead of one process each",
@@ -198,12 +204,15 @@ def _run_row(
     in_process=False,
     curve_batches=None,
     diagnostics=True,
+    max_eval_batches=None,
 ):
     """Run every trial of one row, then summarize. Returns (failed, summary)."""
     run_one = run_trial if in_process else run_trial_in_child
     extra = {} if curve_batches is None else {"curve_batches": curve_batches}
     if not diagnostics:
         extra["diagnostics"] = False
+    if max_eval_batches is not None:
+        extra["max_eval_batches"] = max_eval_batches
     _clear_old_results(out, row.id, keep_trials=range(n_trials) if resume else ())
     write_manifest(
         out,
@@ -438,6 +447,7 @@ def cmd_one_trial(row, args) -> int:
         timed_steps=args.timed,
         zoo_dir=args.zoo,
         diagnostics=not args.no_diagnostics,
+        max_eval_batches=args.max_eval_batches,
         **({} if args.curve_batches is None else {"curve_batches": args.curve_batches}),
     )
     return 0 if result.status == "ok" else 1
@@ -494,6 +504,7 @@ def _run_one_row(row, args, command) -> int:
         in_process=args.in_process,
         curve_batches=args.curve_batches,
         diagnostics=not args.no_diagnostics,
+        max_eval_batches=args.max_eval_batches,
     )
     band_failed = summary is not None and summary.band["status"] == "fail"
     return 1 if failed or band_failed else 0
@@ -516,6 +527,8 @@ def cmd_probe(args, argv) -> int:
         kwargs["timed"] = args.timed
     if args.price_per_hour is not None:
         kwargs["price_per_hour"] = args.price_per_hour
+    if args.no_diagnostics:  # also set by --fast
+        kwargs["diagnostics"] = False
     report = probe.probe(target, **kwargs)
     print(probe.format_probe(report))
     if "--out" in typed:

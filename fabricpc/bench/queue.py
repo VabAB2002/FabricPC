@@ -56,7 +56,7 @@ import signal
 import socket
 import sys
 import threading
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Sequence
 
@@ -89,6 +89,13 @@ __all__ = [
 STATUS_FILE = "queue-status.json"
 REPORT_FILE = "report.md"
 LIVE_PROBE = "live"  # what a bare --probe means
+
+# A rehearsal runs every job for a step or two on whatever machine is at
+# hand, to catch a missing dataset or a shape error before paid GPU time.
+REHEARSE_TRIALS = 2
+REHEARSE_EPOCHS = 1e-4  # one to a few training steps on every dataset here
+REHEARSE_EVAL_BATCHES = 2
+REHEARSE_ARGV = ["--fast", "--max-eval-batches", str(REHEARSE_EVAL_BATCHES)]
 
 RunMain = Callable[[List[str]], int]
 
@@ -125,6 +132,7 @@ def job_argv(
     in_process: bool = False,
     warmup: Optional[int] = None,
     timed: Optional[int] = None,
+    extra: Sequence[str] = (),
 ) -> List[str]:
     """The normal command line for one job (without ``python -m ...``)."""
     argv = [job.id, "--out", str(Path(out) / job.id), "--resume"]
@@ -140,7 +148,7 @@ def job_argv(
         argv += ["--timed", str(timed)]
     if in_process:
         argv.append("--in-process")
-    return argv
+    return argv + list(extra)
 
 
 def _all_trials_finished(job: Job, out) -> bool:
@@ -279,6 +287,7 @@ def run_queue(
     in_process: bool = False,
     warmup: Optional[int] = None,
     timed: Optional[int] = None,
+    extra_argv: Sequence[str] = (),
 ) -> int:
     """Run the plan's jobs in order. Returns 0 if every selected job is ok.
 
@@ -289,7 +298,12 @@ def run_queue(
     only = list(only or [])
     status = _Status(plan, out, plan_path, only)
     status.write()
-    argv_opts = {"in_process": in_process, "warmup": warmup, "timed": timed}
+    argv_opts = {
+        "in_process": in_process,
+        "warmup": warmup,
+        "timed": timed,
+        "extra": extra_argv,
+    }
     ok = True
     for i, job in enumerate(plan.jobs):
         entry = status.job(i)
@@ -360,10 +374,56 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="check the plan and list ids not in the registry",
     )
+    p.add_argument(
+        "--rehearse",
+        action="store_true",
+        help="run every job for a step or two with 2 seeds and a few test "
+        "batches, to catch errors before the real run (needs --out)",
+    )
     p.add_argument("--in-process", action="store_true", help=argparse.SUPPRESS)
     p.add_argument("--warmup", type=int, help=argparse.SUPPRESS)
     p.add_argument("--timed", type=int, help=argparse.SUPPRESS)
     return p
+
+
+def plan_warnings(plan: Plan) -> List[str]:
+    """Jobs that will run but cannot get a pass/fail verdict.
+
+    A verdict needs the row's own epoch count and at least
+    band.MIN_VERDICT_TRIALS good seeds; better to know before paying for
+    the GPU hours.
+    """
+    from fabricpc.bench.band import MIN_VERDICT_TRIALS
+    from fabricpc.bench.registry import ROWS
+
+    warnings = []
+    for job in plan.jobs:
+        rows = job_rows(job.id)
+        if rows is None:
+            continue
+        row = ROWS[rows[0]]
+        trials = job.trials if job.trials is not None else row.n_trials
+        if trials < MIN_VERDICT_TRIALS:
+            warnings.append(
+                f"{job.id}: {trials} seeds: no pass/fail verdict "
+                f"(needs at least {MIN_VERDICT_TRIALS})"
+            )
+        full = float(row.train_config["num_epochs"])
+        if job.epochs is not None and float(job.epochs) != full:
+            warnings.append(
+                f"{job.id}: {job.epochs:g} epochs instead of the row's {full:g}: "
+                "no pass/fail verdict"
+            )
+    return warnings
+
+
+def rehearsal(plan: Plan) -> Plan:
+    """The same jobs, each cut to a couple of seeds and a step or two."""
+    jobs = tuple(
+        replace(job, trials=REHEARSE_TRIALS, epochs=REHEARSE_EPOCHS)
+        for job in plan.jobs
+    )
+    return replace(plan, name=f"{plan.name} (rehearsal)", jobs=jobs)
 
 
 def _hours(h: float) -> str:
@@ -456,13 +516,25 @@ def cli(argv: Sequence[str], run_main: RunMain) -> int:
         for job_id in unknown:
             print(f"unknown id: {job_id} (not a row or family in the registry)")
         print(f"plan '{plan.name}': {len(plan.jobs)} jobs, {len(unknown)} unknown")
+        warnings = plan_warnings(plan)
+        if warnings:
+            print(f"{len(warnings)} warnings:")
+            for w in warnings:
+                print(f"  {w}")
         return 1 if unknown else 0
-    if args.dry_run:
+    if args.dry_run or args.probe:
+        # A probe only times rows; it never starts the campaign.
         print(dry_run(plan, args.out, args.probe))
         return 0
     if not args.out:
         print("queue: --out is required (where results go)", file=sys.stderr)
         return 2
+    extra_argv, warmup, timed = [], args.warmup, args.timed
+    if args.rehearse:
+        plan = rehearsal(plan)
+        extra_argv = REHEARSE_ARGV
+        warmup = 1 if warmup is None else warmup
+        timed = 1 if timed is None else timed
     only = _split_only(args.only)
     missing = [i for i in only if i not in {j.id for j in plan.jobs}]
     if missing:
@@ -477,8 +549,9 @@ def cli(argv: Sequence[str], run_main: RunMain) -> int:
             continue_on_failure=args.continue_on_failure,
             plan_path=args.plan,
             in_process=args.in_process,
-            warmup=args.warmup,
-            timed=args.timed,
+            warmup=warmup,
+            timed=timed,
+            extra_argv=extra_argv,
         )
     )
 

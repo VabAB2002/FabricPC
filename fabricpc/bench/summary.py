@@ -72,6 +72,8 @@ class RowSummary:
     # How PC-like the runs were (see regime_summary); None for backprop rows.
     epc_regime: Optional[Dict[str, object]] = None
     backprop_alignment: Optional[Dict[str, object]] = None
+    # Set when trials scored only part of the test set (a rehearsal).
+    eval_batches_capped: Optional[int] = None
     band: Optional[Dict[str, object]] = None  # filled in by fabricpc.bench.band
     schema_version: int = SCHEMA_VERSION
 
@@ -172,6 +174,10 @@ def summarize_row(results_dir, row_id: str) -> RowSummary:
         peak_memory_comparable=False if len(peaks) >= MIN_TRIALS else None,
         checkpoints=checkpoints,
         **regime_summary(ok),
+        eval_batches_capped=max(
+            (t["eval_batches_capped"] for t in ok if t.get("eval_batches_capped")),
+            default=None,
+        ),
     )
     write_summary(results_dir, summary)
     return summary

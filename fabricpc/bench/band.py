@@ -69,6 +69,12 @@ def check_band(row: BenchmarkRow, summary: RowSummary) -> BandVerdict:
             reason=f"ran {summary.num_epochs:g} epochs; the expected score is "
             f"for {full_epochs:g}",
         )
+    if summary.eval_batches_capped:
+        return replace(
+            base,
+            reason=f"scored on only {summary.eval_batches_capped} test batches, "
+            "not the whole test set",
+        )
     if summary.n_failed:
         return replace(
             base,
