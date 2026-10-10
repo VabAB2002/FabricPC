@@ -36,6 +36,11 @@ from fabricpc.training import metrics as training_metrics
 # The three ways we can train the same graph.
 ALGORITHMS: Tuple[str, ...] = ("spc", "epc", "backprop")
 
+# Seeds per row. The mentor's guidance (2026-09-29): about 10 is good, 3 is
+# the minimum. --preset picks one of these; --trials N overrides both.
+DEFAULT_TRIALS = 10
+PRESETS: Dict[str, int] = {"fast": 3, "standard": DEFAULT_TRIALS}
+
 # What each row's model factory returns: (params, structure).
 ModelFactory = Callable[[jax.Array], Tuple[object, object]]
 LoaderFactory = Callable[[int], Tuple[object, object]]
@@ -105,7 +110,7 @@ class BenchmarkRow:
     optimizer_factory: Callable[[int], optax.GradientTransformation]
     train_config: Mapping[str, object]
     batch_size: int
-    n_trials: int = 5
+    n_trials: int = DEFAULT_TRIALS
     tier: int = 1
     reference: Optional[Reference] = None  # None until a full run sets one
     metric: str = "accuracy"  # the score this row is judged and compared on

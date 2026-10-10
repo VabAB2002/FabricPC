@@ -59,6 +59,45 @@ def test_running_a_row_writes_one_file_per_trial(tmp_path, monkeypatch, rng_key)
     assert "tiny-mlp-spc" in manifest["command"]
 
 
+def _trial_files(folder):
+    return sorted(p.name for p in folder.glob("trial*.json"))
+
+
+def test_the_fast_preset_runs_three_seeds(tmp_path, monkeypatch, rng_key):
+    register_tiny_row(monkeypatch, rng_key)
+    quick = ["--epochs", "0.1", "--warmup", "1", "--timed", "1", "--fast"]
+
+    code = main(["tiny-mlp-spc", "--out", str(tmp_path), "--preset", "fast", *quick])
+
+    assert code == 0
+    assert _trial_files(tmp_path / "tiny-mlp-spc") == [
+        "trial0.json",
+        "trial1.json",
+        "trial2.json",
+    ]
+
+
+def test_trials_wins_over_a_preset(tmp_path, monkeypatch, rng_key):
+    register_tiny_row(monkeypatch, rng_key)
+    quick = ["--epochs", "0.1", "--warmup", "1", "--timed", "1", "--fast"]
+
+    code = main(
+        [
+            "tiny-mlp-spc",
+            "--out",
+            str(tmp_path),
+            "--preset",
+            "standard",
+            "--trials",
+            "2",
+            *quick,
+        ]
+    )
+
+    assert code == 0
+    assert _trial_files(tmp_path / "tiny-mlp-spc") == ["trial0.json", "trial1.json"]
+
+
 def test_a_failed_trial_makes_the_command_exit_nonzero(tmp_path, monkeypatch, rng_key):
     tiny = register_tiny_row(monkeypatch, rng_key)
 
@@ -239,13 +278,14 @@ def test_zoo_flag_saves_a_checkpoint_per_trial(tmp_path, monkeypatch, rng_key):
 
 
 def _with_reference(monkeypatch, rng_key, value):
-    """The tiny row, run the full way (2 seeds, 1 epoch), with an expected score."""
+    """The tiny row, run the full way (3 seeds, the fewest a verdict needs, and
+    1 epoch), with an expected score."""
     from fabricpc.bench.registry import Reference
 
     tiny = register_tiny_row(monkeypatch, rng_key)
     ref = Reference(metric="accuracy", value=value, source="test")
     judged = dataclasses.replace(
-        tiny, reference=ref, n_trials=2, train_config={"num_epochs": 1}
+        tiny, reference=ref, n_trials=3, train_config={"num_epochs": 1}
     )
     monkeypatch.setitem(registry.ROWS, "tiny-mlp-spc", judged)
 
@@ -268,7 +308,7 @@ def test_a_run_far_from_its_expected_score_fails_the_command(
 def test_a_run_matching_its_expected_score_passes(tmp_path, monkeypatch, rng_key):
     # Run once to learn what the tiny row scores, then expect exactly that.
     register_tiny_row(monkeypatch, rng_key)
-    args = ["tiny-mlp-spc", "--out", str(tmp_path), "--trials", "2", "--epochs", "1"]
+    args = ["tiny-mlp-spc", "--out", str(tmp_path), "--trials", "3", "--epochs", "1"]
     assert main([*args, "--warmup", "1", "--timed", "2"]) == 0
     first = json.loads((tmp_path / "tiny-mlp-spc" / "summary.json").read_text())
     _with_reference(monkeypatch, rng_key, value=first["metrics"]["accuracy"]["mean"])

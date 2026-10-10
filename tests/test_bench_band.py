@@ -9,17 +9,17 @@ from fabricpc.bench.registry import ROWS, Reference
 from fabricpc.bench.summary import RowSummary
 
 
-def _row(value=0.98, floor=DEFAULT_FLOOR, metric="accuracy", n_trials=5):
+def _row(value=0.98, floor=DEFAULT_FLOOR, metric="accuracy", n_trials=10):
     ref = Reference(metric=metric, value=value, source="test", floor=floor)
     return dataclasses.replace(ROWS["mnist-mlp-spc"], reference=ref, n_trials=n_trials)
 
 
-def _summary(mean, se, n=5, epochs=20.0, metric="accuracy"):
+def _summary(mean, se, n=5, epochs=20.0, metric="accuracy", failed=0):
     return RowSummary(
         row_id="mnist-mlp-spc",
         algorithm="spc",
         n_ok=n,
-        n_failed=0,
+        n_failed=failed,
         seeds=[i * 1000 for i in range(n)],
         metrics={metric: {"mean": mean, "std": se * n**0.5, "se": se, "n": n}},
         num_epochs=epochs,
@@ -59,10 +59,25 @@ def test_a_shortened_run_is_not_compared():
     assert "epoch" in v.reason
 
 
-def test_fewer_seeds_than_the_row_states_is_not_compared():
+def test_fewer_than_three_seeds_is_not_compared():
     v = check_band(_row(0.98), _summary(mean=0.98, se=0.001, n=2))
     assert v.status == "not_comparable"
     assert "seed" in v.reason
+
+
+def test_a_run_with_failed_seeds_is_not_compared():
+    # Judging only the seeds that survived would be a biased sample: a run
+    # where 7 of 10 seeds crashed must not come out as a pass.
+    v = check_band(_row(0.98), _summary(mean=0.98, se=0.001, n=3, failed=7))
+    assert v.status == "not_comparable"
+    assert "7" in v.reason and "failed" in v.reason
+
+
+def test_three_seeds_are_enough_for_a_verdict():
+    # A fast run (3 seeds) of a 10-seed row is still judged; with few seeds
+    # the SE is bigger, so the band widens on its own.
+    v = check_band(_row(0.98), _summary(mean=0.983, se=0.001, n=3))
+    assert v.status == "pass"
 
 
 def test_a_missing_metric_is_not_compared():

@@ -28,7 +28,7 @@ def test_dry_run_prints_the_row_config_as_json_without_training():
     info = json.loads(out)
     assert info["id"] == "mnist-mlp-spc"
     assert info["algorithm"] == "spc"
-    assert info["n_trials"] == 5
+    assert info["n_trials"] == 10
     assert info["train_config"] == {"num_epochs": 20}
 
 

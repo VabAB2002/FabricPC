@@ -1,9 +1,10 @@
 """95% confidence intervals for a mean over seeds.
 
-A row has only a handful of seeds (two to five), so the interval uses the
-Student t value for n - 1 degrees of freedom, not the 1.96 of a normal
-curve. With five seeds t is 2.78; with two it is 12.7, so a two-seed
-interval is very wide. That is honest: two seeds say little.
+A row has only a handful of seeds (ten by default, three on the fast
+preset), so the interval uses the Student t value for n - 1 degrees of
+freedom, not the 1.96 of a normal curve. With ten seeds t is 2.26, with
+five 2.78, with three 4.30 and with two 12.7, so a two-seed interval is
+very wide. That is honest: two seeds say little.
 
 We do not bootstrap. With fewer than about ten seeds a bootstrap interval
 comes out too narrow (Hesterberg 2015; Colas et al. 2018).

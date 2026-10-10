@@ -9,12 +9,15 @@ passes when
 where the mean and standard error (SE) come from the row's trials and the
 floor is the smallest miss we allow (half a percentage point of accuracy by
 default). Two standard errors lets a noisy row wobble as much as its own
-seeds do. This rule and the 5-seed count are our proposal; the sponsor has
-not signed off yet, so every verdict says so.
+seeds do, and with few seeds the SE is bigger, so the band widens on its
+own. This rule is our proposal; the sponsor has not signed off yet, so
+every verdict says so.
 
 A verdict is only given for a full run: the row's own epoch count and at
-least its stated number of seeds. Anything shorter, like the CI smoke run,
-is marked not comparable instead of passing or failing by accident.
+least MIN_VERDICT_TRIALS good seeds (3, the mentor's minimum, so a fast
+preset run is judged too) and no failed seed, since judging only the seeds
+that survived would be a biased sample. Anything else, like the CI smoke
+run, is marked not comparable instead of passing or failing by accident.
 """
 
 from dataclasses import asdict, dataclass, replace
@@ -24,6 +27,7 @@ from fabricpc.bench.registry import BenchmarkRow
 from fabricpc.bench.summary import RowSummary, write_summary
 
 DEFAULT_FLOOR = 0.005
+MIN_VERDICT_TRIALS = 3
 RULE = "max(floor, 2*SE)"
 
 
@@ -65,11 +69,17 @@ def check_band(row: BenchmarkRow, summary: RowSummary) -> BandVerdict:
             reason=f"ran {summary.num_epochs:g} epochs; the expected score is "
             f"for {full_epochs:g}",
         )
-    if summary.n_ok < row.n_trials:
+    if summary.n_failed:
         return replace(
             base,
-            reason=f"{summary.n_ok} good seeds; the expected score is for "
-            f"{row.n_trials}",
+            reason=f"{summary.n_failed} seeds failed; only a run where every "
+            "seed finished is judged",
+        )
+    if summary.n_ok < MIN_VERDICT_TRIALS:
+        return replace(
+            base,
+            reason=f"{summary.n_ok} good seeds; a verdict needs at least "
+            f"{MIN_VERDICT_TRIALS}",
         )
     stats = summary.metrics.get(ref.metric)
     if stats is None:

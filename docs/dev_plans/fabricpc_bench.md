@@ -38,7 +38,7 @@ Depends on: XLA flag profiles (#50) for recording the active profile; model chec
 | Location | New subpackage `fabricpc/bench/` with a `__main__.py`, so `python -m fabricpc.bench <row>` works from any install. | Issue #59's stated command form; ships with the library; importable by the future nightly job. |
 | Row definition | Frozen Python dataclasses in `fabricpc/bench/registry.py`, one `BenchmarkRow` per row, keyed by id `{dataset}-{model}-{algorithm}` (e.g. `cifar10-vgg5-spc`). Optional YAML overrides for hyperparameters. | Type-checked, greppable, testable; no schema language to invent. YAML only for the numbers that tune. |
 | Arms | Every row has exactly one algorithm. A *comparison* is a named set of rows sharing dataset and model (e.g. `cifar10-vgg5` = {spc, epc, backprop}) run through `PlannedMultiContrastExperiment` with declared contrasts. | Keeps "one graph in all arms" by construction; reuses the existing paired framework unchanged. |
-| Seeds / trials | Default `n_trials=5`, per-row override. Trial `i` uses the framework's `seed_offset + i*1000`. Never report a single-seed accuracy: the writer refuses to emit an aggregate row when `n_trials < 2`. | pcx used 5; 5 is enough for a mean±SE; contrasts get NaN statistics below 2, which the writer rejects. |
+| Seeds / trials | Default `n_trials=10` (mentor, 2026-09-29: about 10 is good, 3 the minimum), per-row override; `--preset fast|standard` = 3 or 10 seeds, `--trials N` wins. A band verdict needs at least 3 good seeds. Trial `i` uses the framework's `seed_offset + i*1000`. Never report a single-seed accuracy: the writer refuses to emit an aggregate row when `n_trials < 2`. | pcx used 5; 5 is enough for a mean±SE; contrasts get NaN statistics below 2, which the writer rejects. |
 | Reproducibility definition | A row reproduces its reference when `abs(mean − ref) <= band`, band per row, default `max(0.5 pp, 2·SE)`. Bitwise agreement is never claimed. | Issue #59 ("within a stated band over a stated seed count, never bitwise"). Default band is a proposal for sponsor sign-off. |
 | Isolation | One subprocess per (row, trial). Parent orchestrates, child runs and prints one JSON line. | Fresh JAX memory pool per trial makes peak memory honest; a crashed trial cannot poison the others. Pattern from `examples/scaling/mlp_scaling.py`. |
 | Timing protocol | `warmup_steps=5` untimed; then `>=30` timed steps, each ending in `jax.block_until_ready`; report the median. Compile time measured separately as wall-clock of the first step. | Excludes JIT, defeats async dispatch, resists scheduler noise. |
@@ -152,7 +152,7 @@ class TinyImageNetLoader(_TfdsImageLoader): ...   # 200 classes, 64x64, val labe
 
 ## Open / deferred
 
-- Band default (`max(0.5 pp, 2·SE)`) and `n_trials=5` need sponsor sign-off.
+- Band default (`max(0.5 pp, 2·SE)`) needs sponsor sign-off; the seed count follows the mentor's 2026-09-29 guidance (10 default, 3 minimum).
 - Whether to subclass `PlannedMultiContrastExperiment` with a subprocess hook instead of the parallel parent above.
 - `hidden_sparsity` threshold for the autoencoder rows: 1e-6 on the activation (exactly-off ReLU units) for now; confirm with the faculty advisor.
 - Whether the zoo stores optimizer state (resume) or params only (inference). Proposal: params only.

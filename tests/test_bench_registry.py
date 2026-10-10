@@ -3,7 +3,7 @@
 import jax
 import pytest
 
-from fabricpc.bench.registry import ROWS, ALGORITHMS, BenchmarkRow
+from fabricpc.bench.registry import ROWS, ALGORITHMS, PRESETS, BenchmarkRow
 
 
 def test_mnist_mlp_rows_are_registered():
@@ -21,6 +21,15 @@ def test_every_row_id_is_dataset_model_algorithm():
         assert row.dataset == dataset
         assert row.model == model
         assert row.algorithm == algo
+
+
+def test_every_row_runs_ten_seeds_by_default():
+    # The mentor's guidance: about 10 seeds is good, 3 is the minimum.
+    assert {row.n_trials for row in ROWS.values()} == {10}
+
+
+def test_presets_are_three_and_ten_seeds():
+    assert PRESETS == {"fast": 3, "standard": 10}
 
 
 def test_rows_are_frozen():
@@ -98,7 +107,7 @@ def test_mlp_rows_carry_an_expected_score_from_our_own_runs():
 
 
 def test_rows_without_a_full_run_yet_have_no_expected_score():
-    # They get one from their first full 5-seed GPU run, not from pcx.
+    # They get one from their first full GPU run, not from pcx.
     for family in ("cifar10-vgg5", "cifar10-resnet18", "tinyshakespeare-transformer"):
         for algo in ("spc", "epc", "backprop"):
             assert ROWS[f"{family}-{algo}"].reference is None

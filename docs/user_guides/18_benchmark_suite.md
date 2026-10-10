@@ -9,8 +9,9 @@ A **row** is one dataset, one model and one training algorithm, named `dataset-m
 ```bash
 python -m fabricpc.bench list                          # every row and family
 python -m fabricpc.bench mnist-mlp-spc --dry-run       # a row's settings, no training
-python -m fabricpc.bench mnist-mlp-spc --trials 5      # one row, 5 seeds
-python -m fabricpc.bench mnist-mlp --trials 5          # a family: all three rows, then compare
+python -m fabricpc.bench mnist-mlp-spc                 # one row, 10 seeds (the default)
+python -m fabricpc.bench mnist-mlp-spc --preset fast   # one row, 3 seeds
+python -m fabricpc.bench mnist-mlp --trials 5          # a family: all three rows, 5 seeds each, then compare
 python -m fabricpc.bench compare mnist-mlp             # compare results already on disk
 python -m fabricpc.bench validate results              # check a results folder is whole
 python -m fabricpc.bench report results --out report.md  # one readable page for a results folder
@@ -22,7 +23,8 @@ Results go under `--out` (default `results/`). Useful flags:
 
 | Flag | Effect |
 |---|---|
-| `--trials N` | seeds to run (default: the row's own, 5) |
+| `--trials N` | seeds to run (default: the row's own, 10); overrides `--preset` |
+| `--preset fast\|standard` | 3 or 10 seeds |
 | `--epochs E` | shorten a run; a shortened run gets no pass/fail verdict |
 | `--resume` | skip trials that already finished with the same epoch count |
 | `--zoo DIR` | save each trial's trained weights (the model zoo) |
@@ -67,13 +69,13 @@ Every mean in `summary.json` (metrics and timing) has `ci95_low` and `ci95_high`
 
 ## The pass/fail band
 
-A full run (the row's own epoch count and seed count) is checked against the row's expected score when it has one:
+A full run (the row's own epoch count, and at least 3 good seeds) is checked against the row's expected score when it has one:
 
 ```
 |mean - expected| <= max(floor, 2 * SE)
 ```
 
-The floor defaults to half a percentage point of accuracy. A FAIL makes the command exit non-zero. Rows without an expected score, and shortened runs, get no verdict. The rule and the default of 5 seeds are a proposal awaiting the maintainers' sign-off, and every verdict says so.
+The floor defaults to half a percentage point of accuracy. A FAIL makes the command exit non-zero. Rows without an expected score, shortened runs, runs with fewer than 3 good seeds and runs where any seed failed get no verdict. Three is the mentor's minimum, so a `--preset fast` run is judged too; with few seeds the SE is bigger, so the band widens on its own. Rows run 10 seeds by default, the mentor's guidance. The band rule is a proposal awaiting the maintainers' sign-off, and every verdict says so.
 
 ## The regression checks in CI
 

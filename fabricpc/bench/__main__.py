@@ -1,7 +1,8 @@
 """Command line for the benchmark suite.
 
     python -m fabricpc.bench list
-    python -m fabricpc.bench <row-id> [--trials N] [--epochs E] [--out DIR]
+    python -m fabricpc.bench <row-id> [--trials N | --preset fast|standard]
+                                      [--epochs E] [--out DIR]
                                       [--resume] [--zoo DIR]
     python -m fabricpc.bench <row-id> --dry-run
     python -m fabricpc.bench <family>             (all three rows, then compare)
@@ -31,7 +32,7 @@ floor. ``regress`` is the stronger CI check: tiny MLP, autoencoder and
 Hopfield runs with all three algorithms, each held to a fixed line (see
 ``fabricpc.bench.regress``).
 
-A full run (the row's own epochs and seed count) is also checked against
+A full run (the row's own epochs, at least 3 good seeds) is also checked against
 the row's expected score, when it has one, and prints PASS or FAIL. A FAIL
 makes the command exit non-zero.
 
@@ -61,7 +62,7 @@ from fabricpc.bench.isolate import run_trial_in_child
 from fabricpc.bench.manifest import describe_row, write_manifest
 from fabricpc.bench.compare import compare_family
 from fabricpc.bench.refresh import refresh_results
-from fabricpc.bench.registry import COMPARISONS, ROWS
+from fabricpc.bench.registry import COMPARISONS, PRESETS, ROWS
 from fabricpc.bench.runner import finished_trial, run_trial, seed_for_trial
 from fabricpc.bench.summary import MIN_TRIALS, compare_rows, summarize_row
 from fabricpc.bench.writer import validate, write_trials_csv
@@ -85,7 +86,14 @@ def _parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--dry-run", action="store_true", help="show the row, do not train")
     p.add_argument("--out", default="results", help="where result files go")
-    p.add_argument("--trials", type=int, help="how many seeds to run")
+    p.add_argument(
+        "--trials", type=int, help="how many seeds to run (overrides --preset)"
+    )
+    p.add_argument(
+        "--preset",
+        choices=sorted(PRESETS),
+        help="seed count: fast = 3, standard = 10 (the default)",
+    )
     p.add_argument("--epochs", type=float, help="override the row's epoch count")
     p.add_argument("--warmup", type=int, default=5, help="untimed steps")
     p.add_argument("--timed", type=int, default=30, help="timed steps")
@@ -484,6 +492,8 @@ def main(argv=None) -> int:
 
         return queue_cli((sys.argv[1:] if argv is None else argv)[1:], run_main=main)
     args = _parser().parse_args(argv)
+    if args.trials is None and args.preset is not None:
+        args.trials = PRESETS[args.preset]
     if args.fast:
         # Same training and scores; only the extras that cost time are skipped.
         args.no_diagnostics = True
