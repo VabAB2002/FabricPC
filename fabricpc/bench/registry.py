@@ -384,9 +384,26 @@ def _cifar10_resnet18_factory(algorithm: str) -> ModelFactory:
     return build
 
 
+def resnet18_demo_optimizer(total_steps: int) -> optax.GradientTransformation:
+    """The ResNet-18 demo's make_optimizer: adamw at 1e-3, weight decay 0.01,
+    a 5% linear warmup from 0, then cosine decay to a hundredth of the rate
+    over the whole run (examples/resnet18_cifar10_demo.py)."""
+    peak = 1e-3
+    schedule = optax.warmup_cosine_decay_schedule(
+        init_value=0.0,
+        peak_value=peak,
+        warmup_steps=int(0.05 * total_steps),
+        decay_steps=total_steps,
+        end_value=peak * 0.01,
+    )
+    return optax.adamw(schedule, weight_decay=0.01)
+
+
 def _cifar10_resnet18_family() -> Dict[str, BenchmarkRow]:
-    # Batch size, learning rate, weight decay, and epoch count follow the
-    # demo's 100-epoch runs. No augmentation yet; see the design doc.
+    # Batch size, optimizer and schedule, and epoch count follow the demo's
+    # 100-epoch runs (run with --augment). Training images get the same
+    # random flips and 4-pixel crops as the VGG rows; one difference from the
+    # demo: our crop pads with zeros after normalizing, the demo reflects.
     rows = {}
     batch_size = 256
     for algo in ALGORITHMS:
@@ -398,7 +415,7 @@ def _cifar10_resnet18_family() -> Dict[str, BenchmarkRow]:
             algorithm=algo,
             model_factory=_cifar10_resnet18_factory(algo),
             loader_factory=_cifar10_loaders(batch_size),
-            optimizer_factory=lambda total_steps: optax.adamw(1e-3, weight_decay=0.01),
+            optimizer_factory=resnet18_demo_optimizer,
             train_config={"num_epochs": 100},
             batch_size=batch_size,
             rate_control=_safety_net(algo),

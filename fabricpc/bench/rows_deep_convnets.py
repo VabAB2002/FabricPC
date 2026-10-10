@@ -164,6 +164,7 @@ def resnet18_lean_family() -> Dict[str, object]:
         BenchmarkRow,
         _cifar10_loaders,
         _safety_net,
+        resnet18_demo_optimizer,
     )
 
     rows = {}
@@ -177,7 +178,7 @@ def resnet18_lean_family() -> Dict[str, object]:
             algorithm=algo,
             model_factory=_resnet18_lean_factory(algo),
             loader_factory=_cifar10_loaders(batch_size),
-            optimizer_factory=lambda total_steps: optax.adamw(1e-3, weight_decay=0.01),
+            optimizer_factory=resnet18_demo_optimizer,
             train_config={"num_epochs": 100},
             batch_size=batch_size,
             tier=2,

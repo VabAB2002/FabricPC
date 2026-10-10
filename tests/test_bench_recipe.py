@@ -68,3 +68,32 @@ def test_runner_passes_the_real_step_count_to_the_optimizer(tmp_path, rng_key):
     )
 
     assert seen == [math.ceil(3 * 1.5)]
+
+
+def test_resnet18_rows_use_the_demos_warmup_cosine_schedule():
+    # examples/resnet18_cifar10_demo.py make_optimizer: adamw, 5% linear
+    # warmup from 0 to lr=1e-3, cosine decay to lr/100, weight decay 0.01.
+    import jax.numpy as jnp
+    import optax
+
+    total = 1000
+    demo = optax.adamw(
+        optax.warmup_cosine_decay_schedule(
+            init_value=0.0,
+            peak_value=1e-3,
+            warmup_steps=int(0.05 * total),
+            decay_steps=total,
+            end_value=1e-5,
+        ),
+        weight_decay=0.01,
+    )
+    params = {"w": jnp.ones(3)}
+    grads = {"w": jnp.full(3, 0.5)}
+    for family in ("cifar10-resnet18", "cifar10-resnet18lean"):
+        for algo in ("spc", "epc", "backprop"):
+            ours = ROWS[f"{family}-{algo}"].optimizer_factory(total)
+            s_ours, s_demo = ours.init(params), demo.init(params)
+            for _ in range(60):  # through the warmup and a little past it
+                u_ours, s_ours = ours.update(grads, s_ours, params)
+                u_demo, s_demo = demo.update(grads, s_demo, params)
+                assert jnp.allclose(u_ours["w"], u_demo["w"])
