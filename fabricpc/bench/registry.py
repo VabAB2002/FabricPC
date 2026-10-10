@@ -6,7 +6,7 @@ compared on equal footing. Row ids look like ``mnist-mlp-spc``.
 """
 
 from dataclasses import dataclass
-from typing import Callable, Dict, Mapping, Optional, Tuple
+from typing import Callable, Dict, List, Mapping, Optional, Tuple
 
 import jax
 import optax
@@ -119,6 +119,10 @@ class BenchmarkRow:
     # not classifiers. PC rows also get the settled energy.
     eval_metrics: Optional[Mapping[str, training_metrics.EvalMetric]] = None
     depth: Optional[int] = None  # residual blocks, for rows swept over depth
+    # Rows whose result is about how training went (e.g. how much a
+    # continual-learning run forgot): numbers worked out from the learning
+    # curve and added to the trial's metrics. Needs the curve on.
+    curve_summary: Optional[Callable[[List[Dict[str, float]]], Dict[str, float]]] = None
 
     def metrics_for(self, trainer_algorithm: str):
         """What to pass as ``evaluate(..., metrics=)``: None means its
@@ -642,6 +646,33 @@ def _hopfield_family() -> Dict[str, BenchmarkRow]:
     return hopfield_family()
 
 
+def _continual_family() -> Dict[str, BenchmarkRow]:
+    """fashionmnist-continual-*: tasks A and B in alternating blocks
+    (fabricpc.bench.continual)."""
+    from fabricpc.bench import continual
+
+    rows = {}
+    for algo in ALGORITHMS:
+        row_id = f"fashionmnist-continual-{algo}"
+        rows[row_id] = BenchmarkRow(
+            id=row_id,
+            dataset="fashionmnist",
+            model="continual",
+            algorithm=algo,
+            model_factory=continual.model_factory(algo),
+            loader_factory=continual.loaders,
+            # The Fashion-MNIST MLP rows' optimizer, kept across blocks.
+            optimizer_factory=lambda total_steps: optax.adamw(0.001, weight_decay=0.1),
+            train_config={"num_epochs": continual.BLOCKS},
+            batch_size=continual.BATCH_SIZE,
+            tier=2,
+            rate_control=_safety_net(algo),
+            eval_metrics=continual.EVAL_METRICS,
+            curve_summary=continual.curve_summary,
+        )
+    return rows
+
+
 def _deep_convnet_families() -> Dict[str, BenchmarkRow]:
     """cifar10-vgg7, cifar10-vgg9 and cifar10-resnet18lean
     (fabricpc.bench.rows_deep_convnets)."""
@@ -663,6 +694,7 @@ ROWS.update(_mnist_autoencoder_family())
 ROWS.update(_hopfield_family())
 ROWS.update(_deep_convnet_families())
 ROWS.update(fcresnet_depth_family())
+ROWS.update(_continual_family())
 
 
 @dataclass(frozen=True)

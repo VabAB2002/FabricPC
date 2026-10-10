@@ -316,6 +316,8 @@ def run_trial(
                 scores=row.metrics_for("backprop"),
             )
         )
+        if row.curve_summary is not None and curve.enabled and curve.points:
+            metrics.update(row.curve_summary(curve.points))
         peak_memory = memory_snapshot().peak_bytes
         regime = None
         if regime_at_init is not None:

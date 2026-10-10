@@ -91,6 +91,12 @@ def time_steps(
     batches = [convert_batch(b) for b in itertools.islice(loader, needed)]
     if not batches:
         raise ValueError("loader yielded no batches")
+    # The step is compiled for the first batch's shapes; a short last batch
+    # (reused when the loader is shorter than the steps timed) would not fit.
+    shapes = jax.tree_util.tree_map(jax.numpy.shape, batches[0])
+    batches = [
+        b for b in batches if jax.tree_util.tree_map(jax.numpy.shape, b) == shapes
+    ]
 
     def batch_at(i):
         return batches[i % len(batches)]

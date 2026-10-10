@@ -144,3 +144,28 @@ def test_warmup_and_compile_stay_out_of_the_step_time(monkeypatch, rng_key):
 
     assert len(calls) == 1 + 2 + 5  # first call, warmup, timed
     assert timing.step_time_ms == pytest.approx(10.0)  # not the 200 ms ones
+
+
+def test_a_short_last_batch_is_left_out_of_the_timing(rng_key):
+    # The step is compiled for one batch size; a loader whose last batch is
+    # smaller (and short enough to be reused in the cycle) must not break it.
+    import jax
+
+    row = ROWS["mnist-mlp-backprop"]
+    full, _ = fake_mnist_loaders(rng_key, n_batches=2, batch_size=8)
+    x, y = list(full)[0]
+    loader = list(full) + [(x[:5], y[:5])]  # a short last batch
+    params, structure = row.model_factory(rng_key)
+
+    timing = measure.time_steps(
+        params,
+        structure,
+        row.optimizer_factory(4),
+        loader,
+        jax.random.PRNGKey(0),
+        algorithm="backprop",
+        warmup_steps=2,
+        timed_steps=4,
+    )
+
+    assert timing.step_time_ms > 0
