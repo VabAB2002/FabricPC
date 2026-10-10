@@ -25,8 +25,9 @@ anything a job leaves out.
 Each job runs through the normal command line, exactly as if it was typed
 by hand, with ``--resume`` added. So killing the queue and starting it
 again loses at most the trial that was running: every finished trial is
-skipped. Each job writes into its own folder, ``<out>/<job id>/``, and the
-weights all go to ``<out>/zoo/``.
+skipped. Each job writes into its own folder, ``<out>/<job id>/``, and its
+weights go to ``<out>/<job id>/zoo/``, so two jobs that run the same row (a
+short probe, then the full family) never overwrite each other's weights.
 
 After every job (and when one starts) the queue rewrites
 ``<out>/queue-status.json``: each job's status (pending, running, done,
@@ -132,7 +133,7 @@ def job_argv(
     if job.epochs is not None:
         argv += ["--epochs", f"{job.epochs:g}"]
     if job.zoo:
-        argv += ["--zoo", str(Path(out) / "zoo")]
+        argv += ["--zoo", str(Path(out) / job.id / "zoo")]
     if warmup is not None:
         argv += ["--warmup", str(warmup)]
     if timed is not None:

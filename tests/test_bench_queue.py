@@ -230,7 +230,8 @@ def test_each_job_runs_through_the_normal_command_with_resume(tmp_path):
     assert "--resume" in first
     assert first[first.index("--out") + 1] == str(out / "mnist-mlp")
     assert first[first.index("--trials") + 1] == "5"
-    assert first[first.index("--zoo") + 1] == str(out / "zoo")
+    # Each job keeps its weights in its own folder, next to its results.
+    assert first[first.index("--zoo") + 1] == str(out / "mnist-mlp" / "zoo")
     assert "--epochs" not in first
     assert second[second.index("--epochs") + 1] == "0.5"
     assert "--zoo" not in second and "--trials" not in second
@@ -476,3 +477,18 @@ def test_a_real_restart_skips_trials_that_already_finished(
     assert status["jobs"][0]["status"] == "done"
     assert status["validate"]["ok"] is True
     assert (out / "report.md").exists()
+
+
+def test_two_jobs_with_the_same_row_keep_separate_weights(tmp_path):
+    # A 1-seed probe of cifar10-vgg7-spc and the full cifar10-vgg7 family
+    # both save cifar10-vgg7-spc trial 0; one zoo for both would let the
+    # second overwrite the first while the probe's files still point at it.
+    probe = queue.Job(id="cifar10-vgg7-spc", trials=1, epochs=3, zoo=True)
+    family = queue.Job(id="cifar10-vgg7", zoo=True)
+
+    zoo_of = [
+        argv[argv.index("--zoo") + 1]
+        for argv in (queue.job_argv(probe, tmp_path), queue.job_argv(family, tmp_path))
+    ]
+
+    assert zoo_of[0] != zoo_of[1]
