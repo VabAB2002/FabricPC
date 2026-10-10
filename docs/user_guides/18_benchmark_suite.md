@@ -15,11 +15,11 @@ python -m fabricpc.bench mnist-mlp --trials 5          # a family: all three row
 python -m fabricpc.bench compare mnist-mlp             # compare results already on disk
 python -m fabricpc.bench validate results              # check a results folder is whole
 python -m fabricpc.bench report results --out report.md  # one readable page for a results folder
-python -m fabricpc.bench smoke                         # the short run CI uses
-python -m fabricpc.bench regress --out regress-results # CI's regression checks
+python -m fabricpc.bench smoke                         # the short run CI uses (into smoke-results/)
+python -m fabricpc.bench regress                       # CI's regression checks (into regress-results/)
 ```
 
-Results go under `--out` (default `results/`). Useful flags:
+Results go under `--out` (default `results/`). `smoke` and `regress` write to `smoke-results/` and `regress-results/` unless `--out` is typed, so a check never replaces a real run. `--dry-run` on a family prints its three rows and trains nothing. Useful flags:
 
 | Flag | Effect |
 |---|---|

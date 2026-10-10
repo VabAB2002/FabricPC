@@ -307,12 +307,25 @@ def cmd_validate(args) -> int:
     return 0
 
 
+def _typed_out(argv) -> bool:
+    """True when the user typed --out; otherwise args.out is the default."""
+    return any(a == "--out" or a.startswith("--out=") for a in argv)
+
+
+def _own_out(args, command, folder: str) -> str:
+    """Where a check command writes when --out was not typed.
+
+    The default ("results") is where real runs live; a smoke or regress run
+    there would replace them, so those checks get a folder of their own.
+    """
+    return args.out if _typed_out(command[3:]) else folder
+
+
 def cmd_refresh(args, command) -> int:
     """Write a corrected copy of an old results folder, then validate it."""
     # --out defaults to "results" for the run commands. Refresh must be told
     # where to write, or it could land on a real run in ./results.
-    typed_out = any(a == "--out" or a.startswith("--out=") for a in command[3:])
-    if len(args.rows) != 1 or not typed_out:
+    if len(args.rows) != 1 or not _typed_out(command[3:]):
         print("usage: refresh <old-results-dir> --out <new-dir>", file=sys.stderr)
         return 2
     try:
@@ -340,8 +353,7 @@ def cmd_report(args, argv) -> int:
         return 2
     # --out has a default ("results") for the run commands; only use it here
     # when the user actually typed it.
-    typed_out = any(a == "--out" or a.startswith("--out=") for a in argv)
-    out = args.out if typed_out else None
+    out = args.out if _typed_out(argv) else None
     text = run_report(args.rows[0], out=out, fmt=args.format)
     print(f"report: wrote {out}" if out else text, end="\n" if out else "")
     return 0
@@ -354,7 +366,7 @@ def cmd_smoke(args, command) -> int:
         return _unknown_row(args.row)
     failed, summary = _run_row(
         row,
-        args.out,
+        _own_out(args, command, "smoke-results"),
         n_trials=2,
         epochs=args.epochs if args.epochs is not None else 0.5,
         warmup=2,
@@ -384,11 +396,12 @@ def cmd_regress(args, command) -> int:
         checks = regress.select(regress.CI_CHECKS, args.rows)
     except KeyError as e:
         return _unknown_row(e.args[0])
+    out = _own_out(args, command, "regress-results")
 
     def run_row(check):
         return _run_row(
             ROWS[check.row_id],
-            args.out,
+            out,
             n_trials=check.trials,
             epochs=check.epochs,
             warmup=2,
@@ -397,7 +410,7 @@ def cmd_regress(args, command) -> int:
             in_process=args.in_process,
         )
 
-    return regress.run_regress(args.out, run_row, checks)
+    return regress.run_regress(out, run_row, checks)
 
 
 def cmd_one_trial(row, args) -> int:
@@ -419,6 +432,16 @@ def cmd_one_trial(row, args) -> int:
 def cmd_family(args, command) -> int:
     """Run every row of a family, then compare them."""
     family = COMPARISONS[args.target]
+    if args.dry_run:
+        print(json.dumps([describe_row(ROWS[r]) for r in family.rows], indent=2))
+        return 0
+    if args.trial is not None:
+        print(
+            f"--trial runs one trial of one row; name a row of {family.id}, "
+            f"e.g. {family.rows[0]}",
+            file=sys.stderr,
+        )
+        return 2
     codes = [_run_one_row(ROWS[row_id], args, command) for row_id in family.rows]
     try:
         _compare_family(family.id, args.out, args.metric or family.metric)

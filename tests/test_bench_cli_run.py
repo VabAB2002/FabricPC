@@ -561,3 +561,68 @@ def test_without_fast_the_curve_and_diagnostics_stay_on(tmp_path, monkeypatch, r
 
     assert all(k.get("diagnostics", True) is True for k in seen)
     assert all(k.get("curve_batches") != 0 for k in seen)
+
+
+# --- commands that must not train or overwrite by surprise -----------------
+
+
+def _no_training(monkeypatch):
+    import fabricpc.bench.__main__ as cli
+
+    def refuse(*a, **k):
+        raise AssertionError("this command must not train anything")
+
+    monkeypatch.setattr(cli, "_run_row", refuse)
+
+
+def test_dry_run_on_a_family_shows_its_rows_and_trains_nothing(monkeypatch, capsys):
+    _no_training(monkeypatch)
+
+    code = cli_main(["mnist-mlp", "--dry-run"])
+
+    assert code == 0
+    shown = json.loads(capsys.readouterr().out)
+    assert [r["id"] for r in shown] == [
+        "mnist-mlp-spc",
+        "mnist-mlp-epc",
+        "mnist-mlp-backprop",
+    ]
+
+
+def test_one_trial_of_a_family_is_refused(monkeypatch, capsys):
+    _no_training(monkeypatch)
+
+    code = cli_main(["mnist-mlp", "--trial", "2"])
+
+    assert code != 0
+    assert "row" in capsys.readouterr().err
+
+
+def test_smoke_without_out_leaves_the_results_folder_alone(
+    tmp_path, monkeypatch, rng_key
+):
+    register_tiny_row(monkeypatch, rng_key)
+    monkeypatch.chdir(tmp_path)
+    real = tmp_path / "results" / "tiny-mlp-spc"
+    real.mkdir(parents=True)
+    (real / "trial0.json").write_text("{}")  # stands in for a real run
+
+    main(["smoke", "--row", "tiny-mlp-spc", "--epochs", "0.1", "--floor", "0"])
+
+    assert (real / "trial0.json").read_text() == "{}"
+    assert (tmp_path / "smoke-results" / "tiny-mlp-spc").is_dir()
+
+
+def test_regress_without_out_writes_to_its_own_folder(monkeypatch):
+    from fabricpc.bench import regress
+
+    seen = {}
+    monkeypatch.setattr(
+        regress,
+        "run_regress",
+        lambda out, run_row, checks: seen.setdefault("out", out) and 0,
+    )
+
+    cli_main(["regress"])
+
+    assert seen["out"] == "regress-results"
