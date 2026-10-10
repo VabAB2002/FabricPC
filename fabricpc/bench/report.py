@@ -11,7 +11,9 @@ the page shows:
 
 - a table of rows: algorithm, seeds, the family's metric as mean ± SE (and
   the 95% interval when the summary has one), step time, slowdown against
-  the backprop row, and the band verdict,
+  the backprop row, the band verdict, and how PC-like the runs ended up
+  (ePC regime bands over the seeds, and the cosine between PC's weight
+  update and backprop's),
 - the paired comparisons, with the p-value and a plain yes/no,
 - where the numbers came from (git sha, hardware, date), and
 - any NOTES.md in that folder, quoted.
@@ -28,6 +30,8 @@ import json
 import re
 import statistics
 from pathlib import Path
+
+from fabricpc.bench.summary import regime_summary
 
 ROW_FILES = ("summary.json", "manifest.json", "trials.csv")
 SKIP_DIRS = {"zoo", "__pycache__"}
@@ -148,6 +152,35 @@ def _from_trials(row_dir: Path, notes: list):
     return len(ok), len(records) - len(ok), values, steps
 
 
+def _pc_likeness(row_dir: Path, notes: list) -> str:
+    """How PC-like the row's runs ended up, from its trial files.
+
+    Read from the trials rather than summary.json, so folders written
+    before the summary carried it show it too.
+    """
+    trials = []
+    for path in sorted(row_dir.glob("trial*.json")):
+        data = _read_json(path, notes)
+        if isinstance(data, dict):
+            trials.append(data)
+    try:
+        reg = regime_summary(trials)
+    except (KeyError, TypeError, ValueError):
+        notes.append("could not read the regime from the trial files")
+        return "-"
+    parts = []
+    epc = (reg.get("epc_regime") or {}).get("final")
+    if epc:
+        for band, k in sorted(epc["bands"].items(), key=lambda kv: -kv[1]):
+            parts.append(f"{band} {k}/{epc['n']}")
+        if epc.get("f_weighted"):
+            parts.append(f"f̄ {epc['f_weighted']['mean']:.2f}")
+    align = (reg.get("backprop_alignment") or {}).get("final")
+    if align:
+        parts.append(f"cos {align['mean_cos']['mean']:.2f}")
+    return ", ".join(parts) or "-"
+
+
 def load_row(row_dir: Path, metric=None) -> dict:
     """Everything the report needs about one row, never raising."""
     notes = []
@@ -186,6 +219,7 @@ def load_row(row_dir: Path, metric=None) -> dict:
             row["stats"][name] = {"mean": mean, "se": se, "n": len(vals)}
         row["step_ms"] = _mean_se(steps)[0]
     row["metric"] = _pick_metric(row, metric)
+    row["pc_like"] = _pc_likeness(row_dir, notes)
     return row
 
 
@@ -312,11 +346,12 @@ def _family_blocks(folder: Path, row_dirs: list, root: Path) -> list:
                 _fmt(row["step_ms"], 2),
                 slow,
                 BAND_WORDS.get(band.get("status"), band.get("status") or "-"),
+                row["pc_like"],
             ]
         )
     if table:
         head = ["algorithm", "row", "seeds", "metric", "mean ± SE [95% CI]"]
-        head += ["step ms", "vs backprop", "band"]
+        head += ["step ms", "vs backprop", "band", "PC-likeness at end"]
         blocks.append(("table", head, table))
     if contrasts:
         blocks.append(("h", 3, "Paired comparisons"))

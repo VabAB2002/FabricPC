@@ -171,6 +171,19 @@ def _clear_old_results(out, row_id, *, keep_trials):
         (row_dir / name).unlink(missing_ok=True)
 
 
+def _print_pc_likeness(row_id, summary):
+    """One line on how PC-like the run ended up, for PC rows."""
+    epc = (summary.epc_regime or {}).get("final")
+    align = (summary.backprop_alignment or {}).get("final")
+    parts = []
+    if epc:
+        parts += [f"{band} {k}/{epc['n']}" for band, k in epc["bands"].items()]
+    if align:
+        parts.append(f"cosine to backprop's update {align['mean_cos']['mean']:.3f}")
+    if parts:
+        print(f"{row_id}: at the end, " + ", ".join(parts))
+
+
 def _run_row(
     row,
     out,
@@ -238,6 +251,7 @@ def _run_row(
                 f"95% CI [{acc['ci95_low']:.4f}, {acc['ci95_high']:.4f}] "
                 f"(n={acc['n']}), step {summary.timing['step_time_ms']['mean']:.2f}ms"
             )
+        _print_pc_likeness(row.id, summary)
         band = summary.band
         label = {"pass": "PASS", "fail": "FAIL"}.get(band["status"], "no verdict")
         pending = (

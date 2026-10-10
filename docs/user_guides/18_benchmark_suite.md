@@ -43,7 +43,7 @@ results/
   compare-cifar10-vgg5.json   paired contrasts for the family
 ```
 
-Every file, compare files included, carries `schema_version` (now 3), and `validate` flags any file that does not match the code reading it. `refresh` (below) brings an older folder up to date. Besides the means, `summary.json` lists each successful trial's `checkpoint` with its seed (for the model zoo) and the average `peak_memory_bytes`, which is marked `peak_memory_comparable: false` for the reason in the table below. Each trial records:
+Every file, compare files included, carries `schema_version` (now 4), and `validate` flags any file that does not match the code reading it. `refresh` (below) brings an older folder up to date. Besides the means, `summary.json` lists each successful trial's `checkpoint` with its seed (for the model zoo) and the average `peak_memory_bytes`, which is marked `peak_memory_comparable: false` for the reason in the table below. It also says how PC-like the runs were: `epc_regime` (ePC rows: how many seeds ended in each band, backprop-like, partially relaxed or near PC equilibrium, the mean relaxed fraction `f_weighted`, and how many were unstable, at the start and at the end) and `backprop_alignment` (PC rows: the mean and weakest-layer cosine between PC's weight update and backprop's). Default ePC is backprop-like, so an ePC score should be read with its band; the report shows both in its "PC-likeness at end" column, read from the trial files so older folders show it too. Each trial records:
 
 | Field | Meaning |
 |---|---|

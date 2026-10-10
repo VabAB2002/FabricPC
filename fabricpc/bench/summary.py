@@ -69,8 +69,65 @@ class RowSummary:
     peak_memory_comparable: Optional[bool] = None
     # Where each successful trial's model was saved, for the model zoo.
     checkpoints: List[Dict[str, object]] = field(default_factory=list)
+    # How PC-like the runs were (see regime_summary); None for backprop rows.
+    epc_regime: Optional[Dict[str, object]] = None
+    backprop_alignment: Optional[Dict[str, object]] = None
     band: Optional[Dict[str, object]] = None  # filled in by fabricpc.bench.band
     schema_version: int = SCHEMA_VERSION
+
+
+def _regime_at(trials: List[dict], when: str) -> Optional[Dict[str, object]]:
+    """ePC regime bands, relaxed fraction and unstable count at one point."""
+    regimes = [
+        (t.get("epc_regime") or {}).get(when)
+        for t in trials
+        if (t.get("epc_regime") or {}).get(when)
+    ]
+    if not regimes:
+        return None
+    bands: Dict[str, int] = {}
+    for r in regimes:
+        bands[r["band"]] = bands.get(r["band"], 0) + 1
+    fractions = [r["f_weighted"] for r in regimes if r.get("f_weighted") is not None]
+    return {
+        "bands": bands,
+        "f_weighted": _stats(fractions) if fractions else None,
+        "unstable": sum(bool(r.get("unstable")) for r in regimes),
+        "n": len(regimes),
+    }
+
+
+def _alignment_at(trials: List[dict], when: str) -> Optional[Dict[str, object]]:
+    """How closely the PC weight update followed backprop's, over seeds."""
+    found = [
+        ((t.get("diagnostics") or {}).get(when) or {}).get("backprop_alignment")
+        for t in trials
+    ]
+    found = [a for a in found if a]
+    if not found:
+        return None
+    return {
+        "mean_cos": _stats([a["mean_cos"] for a in found]),
+        "min_cos": _stats([a["min_cos"] for a in found]),
+    }
+
+
+def regime_summary(trials: List[dict]) -> Dict[str, object]:
+    """How PC-like a row's good trials were, at the start and end of training.
+
+    ``epc_regime`` (ePC rows) counts each band, backprop-like, partially
+    relaxed or near PC equilibrium, and averages the gradient-weighted
+    relaxed fraction. ``backprop_alignment`` (PC rows with diagnostics)
+    averages the cosine between PC's weight update and backprop's. Either
+    is None when no trial recorded it: a backprop row, or a run with
+    diagnostics off.
+    """
+    ok = [t for t in trials if t.get("status", "ok") == "ok"]
+    out: Dict[str, object] = {}
+    for key, at in (("epc_regime", _regime_at), ("backprop_alignment", _alignment_at)):
+        parts = {when: at(ok, when) for when in ("init", "final")}
+        out[key] = parts if any(parts.values()) else None
+    return out
 
 
 def summarize_row(results_dir, row_id: str) -> RowSummary:
@@ -114,6 +171,7 @@ def summarize_row(results_dir, row_id: str) -> RowSummary:
         peak_memory_bytes=_stats(peaks) if len(peaks) >= MIN_TRIALS else None,
         peak_memory_comparable=False if len(peaks) >= MIN_TRIALS else None,
         checkpoints=checkpoints,
+        **regime_summary(ok),
     )
     write_summary(results_dir, summary)
     return summary

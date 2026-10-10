@@ -24,7 +24,8 @@ from fabricpc.bench.registry import BenchmarkRow
 # 2: expected score, band verdict, peak memory
 # 3: summary lists checkpoints and aggregates peak memory; compare files carry
 #    a version too
-SCHEMA_VERSION = 3
+# 4: summary says how PC-like the runs were (epc_regime, backprop_alignment)
+SCHEMA_VERSION = 4
 
 
 def _package_version(name: str) -> Optional[str]:
