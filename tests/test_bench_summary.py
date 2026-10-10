@@ -118,3 +118,30 @@ def test_compare_refuses_rows_whose_seeds_do_not_match(tmp_path):
     write_trials(tmp_path, "a-mlp-epc", [0.90, 0.91], seed_step=7, algorithm="epc")
     with pytest.raises(ValueError, match="seed"):
         compare_rows(tmp_path, "a-mlp-spc", "a-mlp-epc", metric="accuracy")
+
+
+def _set_epochs(out_dir, row_id, trial, epochs):
+    path = out_dir / row_id / f"trial{trial}.json"
+    data = json.loads(path.read_text())
+    data["num_epochs"] = epochs
+    path.write_text(json.dumps(data))
+
+
+def test_a_row_whose_trials_ran_different_lengths_is_refused(tmp_path):
+    # An interrupted --resume with a new --epochs can leave such a folder;
+    # one mean over 1-epoch and 2-epoch trials describes no run at all.
+    write_trials(tmp_path, "mnist-mlp-spc", [0.90, 0.91, 0.92])
+    _set_epochs(tmp_path, "mnist-mlp-spc", 2, 2.0)
+
+    with pytest.raises(ValueError, match="epochs"):
+        summarize_row(tmp_path, "mnist-mlp-spc")
+
+
+def test_compare_refuses_rows_trained_for_different_lengths(tmp_path):
+    write_trials(tmp_path, "a-mlp-spc", [0.90, 0.91, 0.92])
+    write_trials(tmp_path, "a-mlp-epc", [0.90, 0.91, 0.93], algorithm="epc")
+    for i in range(3):
+        _set_epochs(tmp_path, "a-mlp-epc", i, 20.0)
+
+    with pytest.raises(ValueError, match="epochs"):
+        compare_rows(tmp_path, "a-mlp-spc", "a-mlp-epc", metric="accuracy")

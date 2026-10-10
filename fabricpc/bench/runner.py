@@ -118,6 +118,21 @@ def _forward_metrics(
     return {FORWARD_PREFIX + k: float(v) for k, v in raw.items()}
 
 
+def _finite_or_none(value):
+    """NaN and infinity as None, so the trial file is strict JSON.
+
+    The safety net logs lambda_min as NaN at every sPC probe (sPC has no
+    such number); Python reads NaN back, but jq and JSON.parse do not.
+    """
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {k: _finite_or_none(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_finite_or_none(v) for v in value]
+    return value
+
+
 def seed_for_trial(trial: int, seed_offset: int = 0) -> int:
     """Same rule as PlannedMultiContrastExperiment, so arms line up."""
     return seed_offset + trial * 1000
@@ -353,7 +368,9 @@ def run_trial(
             rate_control=(
                 None
                 if controller is None
-                else {"summary": controller.summary(), "history": controller.history}
+                else _finite_or_none(
+                    {"summary": controller.summary(), "history": controller.history}
+                )
             ),
             curve=curve.points if curve.enabled else None,
             num_epochs=epochs,

@@ -252,7 +252,11 @@ def _run_row(
     write_trials_csv(out, row.id)  # also covers a run where every trial was skipped
     summary = None
     if n_trials - failed >= MIN_TRIALS:
-        summary = attach_band(out, row, summarize_row(out, row.id))
+        try:
+            summary = attach_band(out, row, summarize_row(out, row.id))
+        except ValueError as e:  # e.g. trials that ran different lengths
+            print(f"{row.id}: no summary: {e}", file=sys.stderr)
+            return max(failed, 1), None
         acc = summary.metrics.get("accuracy")
         if acc:
             print(
@@ -489,8 +493,29 @@ def cmd_run(args, command) -> int:
     return _run_one_row(row, args, command)
 
 
+def _trials_beyond(out, row_id, n_trials):
+    """Trial numbers on disk at or above ``n_trials``."""
+    row_dir = Path(out) / row_id
+    return sorted(
+        int(p.stem[5:])
+        for p in row_dir.glob("trial*.json")
+        if p.stem[5:].isdigit() and int(p.stem[5:]) >= n_trials
+    )
+
+
 def _run_one_row(row, args, command) -> int:
     n_trials = args.trials if args.trials is not None else row.n_trials
+    beyond = _trials_beyond(args.out, row.id, n_trials) if args.resume else []
+    if beyond:
+        # A run starts by clearing every trial it will not keep; resuming
+        # with fewer seeds would quietly delete finished ones.
+        print(
+            f"{row.id}: --resume with {n_trials} seeds, but {args.out} already "
+            f"has trials {beyond}; resume with --trials {max(beyond) + 1} or "
+            "use another --out",
+            file=sys.stderr,
+        )
+        return 2
     failed, summary = _run_row(
         row,
         args.out,

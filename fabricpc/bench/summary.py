@@ -143,6 +143,13 @@ def summarize_row(results_dir, row_id: str) -> RowSummary:
             f"mean, found {len(ok)}. A single seed is not a result."
         )
 
+    lengths = sorted({float(t.get("num_epochs", 0.0)) for t in ok})
+    if len(lengths) > 1:
+        raise ValueError(
+            f"{row_id}: its trials ran different numbers of epochs {lengths}, so "
+            "one mean would describe no run; rerun the short ones (--resume "
+            "with the same --epochs) or use another --out"
+        )
     metric_names = sorted(ok[0]["metrics"].keys())
     metrics = {name: _stats([t["metrics"][name] for t in ok]) for name in metric_names}
     timing = {

@@ -24,8 +24,27 @@ from fabricpc.bench.registry import BenchmarkRow
 # 2: expected score, band verdict, peak memory
 # 3: summary lists checkpoints and aggregates peak memory; compare files carry
 #    a version too
-# 4: summary says how PC-like the runs were (epc_regime, backprop_alignment)
+# 4: summary says how PC-like the runs were (epc_regime, backprop_alignment);
+#    trials and summary carry eval_batches_capped; manifest carries git_dirty
 SCHEMA_VERSION = 4
+
+
+def _git_dirty() -> Optional[bool]:
+    """True when the code had changes git has not committed, so the git sha
+    alone does not say what ran; None when git cannot say."""
+    try:
+        out = subprocess.run(
+            ["git", "status", "--porcelain", "--untracked-files=no"],
+            cwd=Path(fabricpc.__file__).parent,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if out.returncode != 0:
+        return None
+    return bool(out.stdout.strip())
 
 
 def _package_version(name: str) -> Optional[str]:
@@ -85,6 +104,7 @@ def build_manifest(row: BenchmarkRow, seeds: List[int], command: List[str]) -> d
         "seeds": list(seeds),
         "command": " ".join(command),
         "git_sha": _git_sha(),
+        "git_dirty": _git_dirty(),
         "versions": {
             "fabricpc": fabricpc.__version__,
             "jax": jax.__version__,

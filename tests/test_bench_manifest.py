@@ -2,6 +2,8 @@
 
 import json
 
+import pytest
+
 import jax
 
 import fabricpc
@@ -71,3 +73,37 @@ def test_git_sha_falls_back_to_the_environment_when_git_cannot_say(monkeypatch):
 
     monkeypatch.delenv("FABRICPC_GIT_SHA")
     assert manifest._git_sha() is None
+
+
+@pytest.mark.parametrize(
+    "porcelain, expected", [(" M fabricpc/bench/band.py\n", True), ("", False)]
+)
+def test_the_manifest_says_whether_the_code_had_uncommitted_changes(
+    monkeypatch, porcelain, expected
+):
+    # The git sha alone names a commit that may not hold the code that ran.
+    import subprocess
+
+    from fabricpc.bench import manifest
+
+    def fake_run(cmd, **kwargs):
+        out = porcelain if "status" in cmd else "a" * 40 + "\n"
+        return subprocess.CompletedProcess(cmd, 0, stdout=out, stderr="")
+
+    monkeypatch.setattr(manifest.subprocess, "run", fake_run)
+    assert manifest._git_dirty() is expected
+
+
+def test_git_dirty_is_none_when_git_cannot_say(monkeypatch):
+    from fabricpc.bench import manifest
+
+    def no_git(cmd, **kwargs):
+        raise OSError("no git here")
+
+    monkeypatch.setattr(manifest.subprocess, "run", no_git)
+    assert manifest._git_dirty() is None
+
+
+def test_the_manifest_records_the_dirty_flag(tmp_path):
+    path = write_manifest(tmp_path, ROWS["mnist-mlp-spc"], seeds=[0], command=["x"])
+    assert json.loads(path.read_text())["git_dirty"] in (True, False, None)

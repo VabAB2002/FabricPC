@@ -26,7 +26,7 @@ Results go under `--out` (default `results/`). `smoke` and `regress` write to `s
 | `--trials N` | seeds to run (default: the row's own, 10); overrides `--preset` |
 | `--preset fast\|standard` | 3 or 10 seeds |
 | `--epochs E` | shorten a run; a shortened run gets no pass/fail verdict |
-| `--resume` | skip trials that already finished with the same epoch count |
+| `--resume` | skip trials that already finished with the same epoch count; refused when the folder already holds more trials than asked for, so finished seeds are never deleted |
 | `--zoo DIR` | save each trial's trained weights (the model zoo) |
 | `--metric NAME` | metric for `compare` (default: the family's own) |
 | `--in-process` | run all trials in this process instead of one process each |
@@ -36,7 +36,7 @@ Results go under `--out` (default `results/`). `smoke` and `regress` write to `s
 ```
 results/
   cifar10-vgg5-spc/
-    manifest.json     environment: versions, git commit, GPU, XLA flags, command, row settings
+    manifest.json     environment: versions, git commit (and git_dirty: uncommitted changes?), GPU, XLA flags, command, row settings
     trial0.json ...   one file per seed
     trials.csv        every trial on one line
     summary.json      mean, std, standard error, 95% CI, pass/fail band
@@ -63,7 +63,7 @@ Every file, compare files included, carries `schema_version` (now 4), and `valid
 
 Trial `i` uses seed `i·1000`, the same rule as `PlannedMultiContrastExperiment`, so trial `i` of every row in a family sees the same data order and the same initial key. A trial here trains exactly the model the experiment framework would train for that seed; a test checks the accuracies match to the bit.
 
-`compare` loads the finished trials into the framework's own `PlannedMultiContrastResults` and uses its `contrast_results()`: a paired t-test and Cohen's d on the per-seed differences. Each family tests three contrasts: sPC vs backprop, ePC vs backprop, and ePC vs sPC. Rows are paired on the seeds that all of them ran successfully; seeds only some rows have are listed as `unpaired_seeds`, and fewer than two shared seeds is an error.
+`compare` loads the finished trials into the framework's own `PlannedMultiContrastResults` and uses its `contrast_results()`: a paired t-test and Cohen's d on the per-seed differences. Each family tests three contrasts: sPC vs backprop, ePC vs backprop, and ePC vs sPC. Rows are paired on the seeds that all of them ran successfully, and must have been trained for the same number of epochs (a 1-epoch row is never tested against a 20-epoch one; a row whose own trials differ in length gets no summary); seeds only some rows have are listed as `unpaired_seeds`, and fewer than two shared seeds is an error.
 
 Every mean in `summary.json` (metrics and timing) has `ci95_low` and `ci95_high` beside `mean`, `std`, `se` and `n`: a 95% confidence interval using the Student t value for n-1 degrees of freedom (`fabricpc.bench.ci`). With few seeds t is much bigger than 1.96: 2.78 for five seeds, 4.30 for three, 12.7 for two, so a two-seed interval is very wide on purpose. Each contrast in a compare file also gets `ci95_low` and `ci95_high` for its mean difference, worked out from the same per-seed differences as the paired t-test; the framework's contrast has the SE but no interval. Zero lies outside that interval exactly when p < 0.05. The intervals are not corrected for testing three contrasts at once. The CLI prints them as `95% CI [low, high]`.
 
@@ -195,3 +195,7 @@ How a network is split into PC nodes matters for sPC. On VGG-5, a separate `MaxP
 `cifar10-vgg7` and `cifar10-vgg9` are the `cifar10-vgg5` recipe with a deeper `create_vgg(depth, fuse_pool=True)`: 3x3 convs with a 2x2 max pool fused into the last conv of each block, 128,128 | 256,256 | 512,512 for VGG-7 and one more 512,512 block for VGG-9. Everything else (loaders, optimizer, schedule, Adam epsilon, settling settings, safety net) is VGG-5's. These layouts are ours and need the sponsor's confirmation: pcx's VGG-7 (Table 5 of arXiv 2407.01163) has the same channels but leaves some convs unpadded, pcx only ships VGG-7 configs for CIFAR-100 and Tiny ImageNet, and it has no VGG-9 code. The sPC rows keep VGG-5's 8 settling steps at rate 0.015. A check on one batch at initialization says this is probably not enough: sPC's weight update matched backprop's (cosine near 1) in only the top three or four conv layers, and the layers below got updates about 1e-5 to 1e-8 the size of backprop's with a cosine near 0, which is float noise. 12 steps bought one more layer. Read an sPC VGG-7/9 result with that in mind, and probe the settling rate or step count on a GPU before paying for a full run.
 
 `cifar10-resnet18lean` is `cifar10-resnet18` built with `build_resnet18(lean=True)`. The plain ResNet-18 gives nine nodes a PC latent although they have no weights (eight `SkipConnection` adds and the global `AvgPool`), the same pattern that broke sPC on VGG-5 with separate pool nodes. The lean layout folds each add into the block's second conv (`ConvResidualNode`) and the average pool into the last block: 21 latents instead of 30, the same 2,795,210 parameters, and with the same weights the same forward pass, muPC scales included (the node applies the scales muPC would have put on the folded edges). So its backprop row trains the same network as the plain one, and the PC rows differ only in the latents. The plain rows are unchanged. On one CIFAR-10 batch at initialization, sPC's update agreed with backprop's (cosine above 0.5) in more weight layers with the lean layout than the plain one at 8, 30 and 120 settling steps (10 vs 7, 18 vs 12, 13 vs 12 of 21); whether that turns into better accuracy needs a GPU run. Code: `fabricpc/bench/rows_deep_convnets.py`. None of these rows has an expected score yet.
+
+## Reading the files with other tools
+
+Trial files are strict JSON except for a run that diverged: a metric that became NaN or infinite is written as `NaN`/`Infinity`, which Python's `json` reads but `jq` and JavaScript's `JSON.parse` do not. That only happens when a run broke, which is worth seeing; the safety net's routine NaN (sPC has no `lambda_min`) is written as `null`.

@@ -390,21 +390,6 @@ def test_a_new_run_clears_the_rows_old_trials(tmp_path, monkeypatch, rng_key):
     assert main(["validate", str(tmp_path)]) == 0
 
 
-def test_resume_keeps_finished_trials_but_drops_ones_past_the_new_count(
-    tmp_path, monkeypatch, rng_key
-):
-    register_tiny_row(monkeypatch, rng_key)
-    args3 = _tiny_args(tmp_path)
-    args3[args3.index("--trials") + 1] = "3"
-    assert main(args3) == 0
-
-    ran = _count_trial_runs(monkeypatch)
-    assert main(_tiny_args(tmp_path, "--resume")) == 0
-
-    assert ran == []  # trials 0 and 1 were already done
-    assert _trial_names(tmp_path) == ["trial0.json", "trial1.json"]
-
-
 def test_an_old_summary_does_not_outlive_a_run_too_small_to_summarize(
     tmp_path, monkeypatch, rng_key
 ):
@@ -650,3 +635,31 @@ def test_a_capped_evaluation_is_recorded_on_the_trial(tmp_path, monkeypatch, rng
     assert code == 0
     trial = json.loads((tmp_path / "tiny-mlp-spc" / "trial0.json").read_text())
     assert trial["eval_batches_capped"] == 1
+
+
+def test_resume_with_fewer_seeds_than_finished_is_refused(
+    tmp_path, monkeypatch, rng_key
+):
+    # Resuming a 3-seed run with --trials 2 used to delete trial 2 silently.
+    register_tiny_row(monkeypatch, rng_key)
+    quick = ["--epochs", "0.1", "--warmup", "1", "--timed", "1", "--fast"]
+    out = ["tiny-mlp-spc", "--out", str(tmp_path)]
+    assert main([*out, "--trials", "3", *quick]) == 0
+
+    code = main([*out, "--trials", "2", "--resume", *quick])
+
+    assert code != 0
+    assert (tmp_path / "tiny-mlp-spc" / "trial2.json").exists()
+
+
+def test_a_pc_trial_file_is_strict_json(tmp_path, monkeypatch, rng_key):
+    # The safety net logs lambda_min as NaN at every sPC probe; NaN is not
+    # JSON, so tools other than Python cannot read the file.
+    register_tiny_row(monkeypatch, rng_key)
+    quick = ["--epochs", "0.1", "--warmup", "1", "--timed", "1", "--fast"]
+
+    assert main(["tiny-mlp-spc", "--out", str(tmp_path), "--trials", "2", *quick]) == 0
+
+    text = (tmp_path / "tiny-mlp-spc" / "trial0.json").read_text()
+    assert json.loads(text)["rate_control"] is not None
+    assert "NaN" not in text

@@ -105,6 +105,14 @@ def planned_results(
             f"need at least {MIN_TRIALS} seeds that all of {list(rows)} ran "
             f"successfully, found {len(shared)} ({shared})"
         )
+    lengths = {
+        r: sorted({float(t.get("num_epochs", 0.0)) for t in trials[r]}) for r in rows
+    }
+    if len({e for es in lengths.values() for e in es}) > 1:
+        raise ValueError(
+            f"these rows were trained for different numbers of epochs {lengths}; "
+            "a paired test only means something between runs of the same length"
+        )
     per_arm = {
         row_id: [
             ArmTrial(
