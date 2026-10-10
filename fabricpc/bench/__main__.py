@@ -76,8 +76,8 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument(
         "target",
         help="'list', 'compare', 'smoke', 'regress', 'validate', 'refresh', "
-        "'probe', 'queue', 'report', 'doctor', 'trend', or a row id like "
-        "mnist-mlp-spc",
+        "'probe', 'queue', 'report', 'doctor', 'trend', 'cycles', or a row "
+        "id like mnist-mlp-spc",
     )
     p.add_argument(
         "rows",
@@ -353,6 +353,22 @@ def _own_out(args, command, folder: str) -> str:
     return args.out if _typed_out(command[3:]) else folder
 
 
+def cmd_cycles(args) -> int:
+    """Loops: refine with sPC or unroll? (issue #64; fabricpc.bench.cycles)."""
+    from fabricpc.bench import cycles
+    from fabricpc.bench.registry import _flat_image_loaders
+
+    report = cycles.run(
+        args.out,
+        loader_factory=_flat_image_loaders("mnist", 200),
+        epochs=args.epochs if args.epochs is not None else 1.0,
+        n_batches=args.max_eval_batches or 5,
+    )
+    print(cycles.render(report))
+    print(f"cycles: wrote {Path(args.out) / 'cycles.json'}")
+    return 0
+
+
 def cmd_trend(args) -> int:
     """Keep a history of runs and flag rows that got worse (issue #54)."""
     from fabricpc.bench import trend
@@ -621,6 +637,8 @@ def main(argv=None) -> int:
         return cmd_doctor(args)
     if args.target == "trend":
         return cmd_trend(args)
+    if args.target == "cycles":
+        return cmd_cycles(args)
     if args.target == "compare":
         return cmd_compare(args)
     if args.target == "smoke":

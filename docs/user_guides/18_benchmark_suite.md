@@ -202,6 +202,10 @@ It recounts `compute` and `achieved_tflops` with today's FLOP counter (keeping t
 
 First Mac CPU run, 10 seeds, about 7 minutes: final accuracy sPC 69.3% ± 0.3, ePC 66.8% ± 0.7, backprop 66.7% ± 0.8 (sPC - backprop +2.6 points, Holm p = 0.063); forgetting sPC 18.9%, ePC 17.4%, backprop 17.4% (sPC forgets 1.5 points more, Holm p = 0.026). ePC was backprop-like on all 10 seeds and matched backprop to the third decimal. So with these settings (sPC settling 20 steps at rate 0.05) sPC does not forget less; Song et al.'s effect comes from settling to equilibrium, which a longer or relaxed settle would test.
 
+## Graphs with loops
+
+`python -m fabricpc.bench cycles --out DIR` measures issue #64: on two looped MNIST graphs, how much a settle costs (matmuls per sample, time) to land within 1% of the true energy (sPC settled for 2000 steps), when unrolling the loop and relaxing with ePC, when relaxing one visit with ePC and refining with sPC, and with plain sPC. It writes `cycles.json` and `cycles.md`. `--epochs` sets the training of the weights first (default 1) and `--max-eval-batches` the test batches settled (default 5). The first run and the default it supports are in `docs/reports/cycles_refine_vs_unroll.md`: unroll 2 or 3 times with about 20 ePC steps, for about half the matmuls of plain sPC.
+
 ## Adding a row
 
 Rows live in `fabricpc/bench/registry.py` as frozen `BenchmarkRow`s: a model factory `(rng_key) -> (params, structure)`, a loader factory `(seed) -> (train, test)`, an optimizer factory `(total_steps) -> optax transform` (so learning-rate schedules can see the run length), the training config, the batch size, and optionally an expected score and the row's main metric. All three rows of a family must build the same graph and differ only in the solver.
