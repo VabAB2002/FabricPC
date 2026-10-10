@@ -7,6 +7,7 @@ A **row** is one dataset, one model and one training algorithm, named `dataset-m
 ## Quick start
 
 ```bash
+python -m fabricpc.bench doctor --out results          # is this machine ready? (devices, datasets, disk, one step)
 python -m fabricpc.bench list                          # every row and family
 python -m fabricpc.bench mnist-mlp-spc --dry-run       # a row's settings, no training
 python -m fabricpc.bench mnist-mlp-spc                 # one row, 10 seeds (the default)
@@ -155,6 +156,7 @@ It prints, per row, the step time, steps per epoch, time per seed and for all se
 On a shared GPU machine (a JupyterHub), `python -m fabricpc.bench queue <plan.json> --out DIR` works through a list of rows and families in order, with `--resume`, a `queue-status.json` after every job, and `validate` plus `report` at the end; `fabricpc/bench/plans/gpu_campaign.json` is the waiting GPU work, and `gpu_deep_vgg.json` holds VGG-7/9 until their layouts are signed off. Before paying for the hours:
 
 ```bash
+python -m fabricpc.bench doctor --out runs                                    # GPU visible? both CUDA plugins? datasets, disk, one step
 python -m fabricpc.bench queue plans/gpu_campaign.json --validate-plan       # unknown ids, and jobs that get no pass/fail verdict
 python -m fabricpc.bench queue plans/gpu_campaign.json --probe --out probes  # time every row on this machine, train nothing
 python -m fabricpc.bench queue plans/gpu_campaign.json --rehearse --out rehearsal  # every job for a step or two

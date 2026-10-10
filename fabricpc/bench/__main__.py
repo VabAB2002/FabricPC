@@ -76,7 +76,7 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument(
         "target",
         help="'list', 'compare', 'smoke', 'regress', 'validate', 'refresh', "
-        "'probe', 'queue', 'report', or a row id like mnist-mlp-spc",
+        "'probe', 'queue', 'report', 'doctor', or a row id like mnist-mlp-spc",
     )
     p.add_argument(
         "rows",
@@ -348,6 +348,15 @@ def _own_out(args, command, folder: str) -> str:
     return args.out if _typed_out(command[3:]) else folder
 
 
+def cmd_doctor(args) -> int:
+    """Check this machine is ready: devices, datasets, disk, one step."""
+    from fabricpc.bench import doctor
+
+    checks = doctor.run_checks(args.out)
+    print(doctor.format_checks(checks))
+    return 1 if any(c.status == "fail" for c in checks) else 0
+
+
 def cmd_refresh(args, command) -> int:
     """Write a corrected copy of an old results folder, then validate it."""
     # --out defaults to "results" for the run commands. Refresh must be told
@@ -577,6 +586,8 @@ def main(argv=None) -> int:
     command = [sys.executable, "-m", "fabricpc.bench", *(argv or sys.argv[1:])]
     if args.target == "list":
         return cmd_list()
+    if args.target == "doctor":
+        return cmd_doctor(args)
     if args.target == "compare":
         return cmd_compare(args)
     if args.target == "smoke":
