@@ -32,6 +32,18 @@ class PairedTestResult:
 
 
 @dataclass(frozen=True)
+class TwoSampleTestResult:
+    """Result of an unpaired (Welch) t-test between two groups."""
+
+    t_statistic: float
+    p_value: float
+    mean_difference: float  # mean(a) - mean(b)
+    significant_at_05: bool
+    n_a: int
+    n_b: int
+
+
+@dataclass(frozen=True)
 class EffectSize:
     """Cohen's d effect size with interpretation."""
 
@@ -83,6 +95,29 @@ def paired_ttest(group_a: np.ndarray, group_b: np.ndarray) -> PairedTestResult:
         mean_difference=diff,
         significant_at_05=p_value < 0.05,
         n=len(group_a),
+    )
+
+
+def welch_ttest(group_a: np.ndarray, group_b: np.ndarray) -> TwoSampleTestResult:
+    """Welch's two-sample t-test: unpaired groups of possibly unequal size
+    and variance, such as a new run's seeds against a baseline window.
+
+    Raises:
+        ValueError: If either group has fewer than 2 samples.
+    """
+    from scipy import stats
+
+    a, b = np.asarray(group_a, dtype=float), np.asarray(group_b, dtype=float)
+    if len(a) < 2 or len(b) < 2:
+        raise ValueError("Need at least 2 samples in each group for a Welch test")
+    t_stat, p_value = stats.ttest_ind(a, b, equal_var=False)
+    return TwoSampleTestResult(
+        t_statistic=float(t_stat),
+        p_value=float(p_value),
+        mean_difference=float(np.mean(a) - np.mean(b)),
+        significant_at_05=bool(p_value < 0.05),
+        n_a=len(a),
+        n_b=len(b),
     )
 
 

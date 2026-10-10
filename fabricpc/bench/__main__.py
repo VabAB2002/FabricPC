@@ -76,7 +76,8 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument(
         "target",
         help="'list', 'compare', 'smoke', 'regress', 'validate', 'refresh', "
-        "'probe', 'queue', 'report', 'doctor', or a row id like mnist-mlp-spc",
+        "'probe', 'queue', 'report', 'doctor', 'trend', or a row id like "
+        "mnist-mlp-spc",
     )
     p.add_argument(
         "rows",
@@ -132,6 +133,10 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="quicker runs: no learning curve and no diagnostics "
         "(same training, same scores)",
+    )
+    p.add_argument(
+        "--history",
+        help="for 'trend': the folder that keeps one line per run per row",
     )
     p.add_argument(
         "--max-eval-batches",
@@ -346,6 +351,32 @@ def _own_out(args, command, folder: str) -> str:
     there would replace them, so those checks get a folder of their own.
     """
     return args.out if _typed_out(command[3:]) else folder
+
+
+def cmd_trend(args) -> int:
+    """Keep a history of runs and flag rows that got worse (issue #54)."""
+    from fabricpc.bench import trend
+
+    action = args.rows[0] if args.rows else None
+    if not args.history or action not in ("add", "check"):
+        print(
+            "usage: trend add <results-dir> --history DIR | trend check --history DIR",
+            file=sys.stderr,
+        )
+        return 2
+    if action == "add":
+        if len(args.rows) != 2:
+            print("usage: trend add <results-dir> --history DIR", file=sys.stderr)
+            return 2
+        added = trend.add_results(args.rows[1], args.history)
+        print(f"trend: recorded {len(added)} row(s) in {args.history}")
+        return 0
+    alerts = trend.check(args.history)
+    for alert in alerts:
+        print(alert.line())
+    if not alerts:
+        print("trend: no regression against the rolling baseline")
+    return 1 if alerts else 0
 
 
 def cmd_doctor(args) -> int:
@@ -588,6 +619,8 @@ def main(argv=None) -> int:
         return cmd_list()
     if args.target == "doctor":
         return cmd_doctor(args)
+    if args.target == "trend":
+        return cmd_trend(args)
     if args.target == "compare":
         return cmd_compare(args)
     if args.target == "smoke":

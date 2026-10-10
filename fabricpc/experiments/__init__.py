@@ -12,6 +12,7 @@ from fabricpc.experiments.ab_experiment import (
 )
 from fabricpc.experiments.statistics import (
     paired_ttest,
+    welch_ttest,
     cohens_d,
     estimate_required_n,
     descriptive_stats,
@@ -27,6 +28,7 @@ __all__ = [
     "ContrastResult",
     "DescriptiveDelta",
     "paired_ttest",
+    "welch_ttest",
     "cohens_d",
     "estimate_required_n",
     "descriptive_stats",

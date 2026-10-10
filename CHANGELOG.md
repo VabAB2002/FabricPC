@@ -10,6 +10,9 @@
 - Benchmark trials record `diagnostics` at init and after training: how closely each layer's PC update matches backprop's, and the network's stiffness (`fabricpc.bench.diagnostics`).
 - `latent_curvature` / `make_latent_curvature` (`fabricpc.core.latent_curvature`): the stiffness a state-based settle sees, whose reciprocal bounds its stable rate.
 
+- `fabricpc.experiments.welch_ttest`: Welch's unpaired two-sample t-test, for comparing a run against a baseline window of a different size.
+- `python -m fabricpc.bench trend add|check --history DIR`: a per-row history of runs and a rolling-baseline regression check (issue #54).
+
 ### Fixed
 - `RegimeProbe` under an `InferenceSchedule` finds the schedule's ePC segment instead of writing empty regime columns; several ePC segments raise and ask for `inference=`, and an `algorithm="pc"` run with no ePC solver raises at the first update (issue #74). The ResNet-18 demo skips `--track_regime` for sPC.
 

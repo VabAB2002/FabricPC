@@ -175,6 +175,17 @@ python -m fabricpc.bench queue plans/gpu_campaign.json --rehearse --out rehearsa
 
 `--validate-plan` warns about jobs that run fewer than 3 seeds or a shortened epoch count, since those get no verdict. `--probe` on its own times every row and prints the estimate; it never starts the campaign. `--rehearse` runs every job with 2 seeds, a step or two of training (`--epochs 0.0001`), `--fast`, and 2 test batches (`--max-eval-batches 2`), so a missing dataset, a shape error or a zoo problem shows up on a laptop instead of on paid time. Its trials record `eval_batches_capped` and never get a verdict. See [Running on a GPU Server](19_running_on_a_gpu_server.md).
 
+## Trend tracking
+
+Shared runners wobble by 5 to 15% in timing, so "slower than last night" alerts all the time. `trend` keeps every run and compares the newest with the ones before it (issue #54):
+
+```bash
+python -m fabricpc.bench trend add regress-results --history bench-history   # one line per row per run
+python -m fabricpc.bench trend check --history bench-history                 # exit 1 on a regression
+```
+
+`add` appends each row's per-seed step times and scores, with the git sha, date, device and XLA flags, to `<history>/<row>.jsonl` (the same run is never added twice). `check` groups a row's runs by device and XLA flags, so a new machine starts a new baseline instead of alerting, pools the previous 5 runs of the group as the baseline, and tests the newest run against it with Welch's unpaired t-test (`fabricpc.experiments.welch_ttest`). It alerts only when the difference is real (p < 0.05) and big enough to matter: step time 15% slower, or the row's metric half a point worse (lower is better for MSE, perplexity, cross-entropy and forgetting). A row's solver settings are fixed by its id; change them under a new id or start a new history.
+
 ## Fixing old results without retraining
 
 When a bug fix changes a number the suite works out rather than measures, `refresh` writes a corrected copy of an old results folder:
