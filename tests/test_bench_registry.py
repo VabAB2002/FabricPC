@@ -191,3 +191,27 @@ def test_every_pc_row_has_the_safety_net_and_backprop_rows_do_not():
             assert row.rate_control is not None, row.id
             assert row.rate_control.target == target, row.id
             assert row.rate_control.every == 50, row.id
+
+
+def test_every_family_trains_its_three_rows_with_one_optimizer():
+    # Same graph and same optimizer, so a difference between the rows comes
+    # from the learning rule alone (examples/PC_backprop_compare.py shares
+    # one optimizer between its arms for the same reason).
+    import jax.numpy as jnp
+
+    from fabricpc.bench.registry import COMPARISONS
+
+    params = {"w": jnp.linspace(-1.0, 1.0, 4)}
+    grads = {"w": jnp.full(4, 0.3)}
+    total = 200
+    for family in COMPARISONS.values():
+        updates = []
+        for row_id in family.rows:
+            opt = ROWS[row_id].optimizer_factory(total)
+            state, seen = opt.init(params), []
+            for _ in range(30):
+                u, state = opt.update(grads, state, params)
+                seen.append(u["w"])
+            updates.append(jnp.stack(seen))
+        for other in updates[1:]:
+            assert jnp.allclose(updates[0], other), family.id

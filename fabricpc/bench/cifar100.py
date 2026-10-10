@@ -38,15 +38,15 @@ from fabricpc.core.inference_epc import EPCInference
 from fabricpc.graph_initialization import initialize_params
 from fabricpc.models import create_vgg
 
-# pcx tuned each method on its own for CIFAR-100, so each row uses pcx's
-# own weight settings, rounded like the CIFAR-10 rows' ones. PC comes from
-# VGG5_PCN_CE_cifar100.yaml; its weight decay is about 600 times CIFAR-10's
-# (1.2e-5). Backprop comes from VGG5_BP_CE_cifar100.yaml, which uses a much
-# smaller decay (2.2e-5) and a slightly lower rate.
-_PC_PEAK_LR = 2.2e-4
-_PC_WEIGHT_DECAY = 7.6e-3
-_BP_PEAK_LR = 2.1e-4
-_BP_WEIGHT_DECAY = 2.2e-5
+# All three rows train their weights with one optimizer, like every other
+# family, so a difference between them comes from the learning rule alone.
+# The settings are pcx's PC-CE ones (VGG5_PCN_CE_cifar100.yaml), rounded,
+# as the CIFAR-10 rows use pcx's PC-CE settings for all three; the weight
+# decay is about 600 times CIFAR-10's (1.2e-5). pcx tuned its backprop on
+# its own (VGG5_BP_CE_cifar100.yaml: rate 2.1e-4, decay 2.2e-5); we do not
+# use that, so our backprop row may sit a little below pcx's.
+_PEAK_LR = 2.2e-4
+_WEIGHT_DECAY = 7.6e-3
 _WARMUP_FRACTION = 0.1
 
 # pcx settles for 12 steps here (8 on CIFAR-10). Its state optimizer is SGD
@@ -105,13 +105,6 @@ def _loaders(batch_size: int):
     return build
 
 
-def _weight_settings(algorithm: str):
-    """(peak learning rate, weight decay) for a row's weights."""
-    if algorithm == "backprop":
-        return _BP_PEAK_LR, _BP_WEIGHT_DECAY
-    return _PC_PEAK_LR, _PC_WEIGHT_DECAY
-
-
 def _lr_schedule(total_steps: int, peak_lr: float) -> optax.Schedule:
     """Same shape as the CIFAR-10 rows: up from zero over the first tenth,
     then a cosine down to zero. (pcx starts at the rate, peaks at 1.1 times
@@ -125,20 +118,15 @@ def _lr_schedule(total_steps: int, peak_lr: float) -> optax.Schedule:
     )
 
 
-def _optimizer_for(algorithm: str):
-    """The row's optimizer factory, with that method's pcx weight settings."""
-    peak_lr, weight_decay = _weight_settings(algorithm)
+def _optimizer(total_steps: int) -> optax.GradientTransformation:
+    """The one optimizer all three rows train with (pcx's PC-CE weights)."""
+    from fabricpc.bench.registry import _DEEP_ADAM_EPS
 
-    def make(total_steps: int) -> optax.GradientTransformation:
-        from fabricpc.bench.registry import _DEEP_ADAM_EPS
-
-        return optax.adamw(
-            _lr_schedule(total_steps, peak_lr),
-            weight_decay=weight_decay,
-            eps=_DEEP_ADAM_EPS,
-        )
-
-    return make
+    return optax.adamw(
+        _lr_schedule(total_steps, _PEAK_LR),
+        weight_decay=_WEIGHT_DECAY,
+        eps=_DEEP_ADAM_EPS,
+    )
 
 
 def cifar100_vgg5_family() -> Dict[str, object]:
@@ -156,7 +144,7 @@ def cifar100_vgg5_family() -> Dict[str, object]:
             algorithm=algo,
             model_factory=_model_factory(algo),
             loader_factory=_loaders(batch_size),
-            optimizer_factory=_optimizer_for(algo),
+            optimizer_factory=_optimizer,
             train_config={"num_epochs": 50},
             batch_size=batch_size,
             rate_control=_safety_net(algo),

@@ -9,8 +9,9 @@ Where the numbers come from: pcx's VGG-5 Tiny-ImageNet configs, on the
 ``build-docs`` branch of github.com/liukidar/pcx under
 ``examples/s4_1_discriminative_mode/VGG5/tinyimagenet/``. Our PC rows clamp
 the output to the label and use cross-entropy, which is pcx's PC-CE method,
-so they take ``VGG5_PCN_CE_tinyimagenet.yaml``; the backprop row takes
-``VGG5_BP_CE_tinyimagenet.yaml``:
+so all three rows take the weight settings of
+``VGG5_PCN_CE_tinyimagenet.yaml`` (pcx's own backprop file is listed too,
+for reference only):
 
     PC-CE: T = 7, act_fn = hard_tanh, batch 128, 50 epochs
            weights: AdamW, lr 4.463151374486534e-05, wd 0.0014288405442168734
@@ -53,13 +54,14 @@ NUM_CLASSES = 200
 IMAGE_SIZE = 64  # what the dataset stores
 CROP_SIZE = 56  # what the model sees, as in pcx
 
-# pcx tuned each method on its own, so each row uses pcx's own weight
-# settings, rounded. PC (VGG5_PCN_CE_tinyimagenet.yaml) has half backprop's
-# rate and about 70 times its weight decay.
-_PC_PEAK_LR = 4.5e-5
-_PC_WEIGHT_DECAY = 1.4e-3
-_BP_PEAK_LR = 8.7e-5
-_BP_WEIGHT_DECAY = 2.1e-5
+# All three rows train their weights with one optimizer, like every other
+# family, so a difference between them comes from the learning rule alone.
+# The settings are pcx's PC-CE ones (VGG5_PCN_CE_tinyimagenet.yaml),
+# rounded, as on CIFAR. pcx tuned its backprop on its own (twice this rate,
+# about a seventieth of this decay); we do not use that, so our backprop
+# row may sit a little below pcx's.
+_PEAK_LR = 4.5e-5
+_WEIGHT_DECAY = 1.4e-3
 _WARMUP_FRACTION = 0.1
 
 # pcx settles for 7 steps here. Its state optimizer is SGD at 0.01004 with
@@ -121,13 +123,6 @@ def _loaders(batch_size: int):
     return build
 
 
-def _weight_settings(algorithm: str):
-    """(peak learning rate, weight decay) for a row's weights."""
-    if algorithm == "backprop":
-        return _BP_PEAK_LR, _BP_WEIGHT_DECAY
-    return _PC_PEAK_LR, _PC_WEIGHT_DECAY
-
-
 def _lr_schedule(total_steps: int, peak_lr: float) -> optax.Schedule:
     """Same shape as the CIFAR VGG rows: up from zero over the first tenth,
     then a cosine down to zero. (pcx starts at the rate, peaks at 1.1 times
@@ -141,20 +136,15 @@ def _lr_schedule(total_steps: int, peak_lr: float) -> optax.Schedule:
     )
 
 
-def _optimizer_for(algorithm: str):
-    """The row's optimizer factory, with that method's pcx weight settings."""
-    peak_lr, weight_decay = _weight_settings(algorithm)
+def _optimizer(total_steps: int) -> optax.GradientTransformation:
+    """The one optimizer all three rows train with (pcx's PC-CE weights)."""
+    from fabricpc.bench.registry import _DEEP_ADAM_EPS
 
-    def make(total_steps: int) -> optax.GradientTransformation:
-        from fabricpc.bench.registry import _DEEP_ADAM_EPS
-
-        return optax.adamw(
-            _lr_schedule(total_steps, peak_lr),
-            weight_decay=weight_decay,
-            eps=_DEEP_ADAM_EPS,
-        )
-
-    return make
+    return optax.adamw(
+        _lr_schedule(total_steps, _PEAK_LR),
+        weight_decay=_WEIGHT_DECAY,
+        eps=_DEEP_ADAM_EPS,
+    )
 
 
 def tinyimagenet_vgg5_family() -> Dict[str, object]:
@@ -172,7 +162,7 @@ def tinyimagenet_vgg5_family() -> Dict[str, object]:
             algorithm=algo,
             model_factory=_model_factory(algo),
             loader_factory=_loaders(batch_size),
-            optimizer_factory=_optimizer_for(algo),
+            optimizer_factory=_optimizer,
             train_config={"num_epochs": 50},
             batch_size=batch_size,
             rate_control=_safety_net(algo),

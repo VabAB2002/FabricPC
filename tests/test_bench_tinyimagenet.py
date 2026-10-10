@@ -85,13 +85,11 @@ def test_tinyimagenet_rows_use_pcx_pc_ce_settings(rng_key):
         assert type(act).__name__ == "HardTanhActivation"
 
 
-def test_tinyimagenet_weight_settings_follow_pcx_per_method():
-    # PC: VGG5_PCN_CE_tinyimagenet.yaml; backprop: VGG5_BP_CE_tinyimagenet.yaml.
+def test_tinyimagenet_rows_use_pcx_pc_ce_weight_settings():
+    # VGG5_PCN_CE_tinyimagenet.yaml, rounded; one setting for all three rows.
     from fabricpc.bench import tinyimagenet
 
-    assert tinyimagenet._weight_settings("spc") == (4.5e-5, 1.4e-3)
-    assert tinyimagenet._weight_settings("epc") == (4.5e-5, 1.4e-3)
-    assert tinyimagenet._weight_settings("backprop") == (8.7e-5, 2.1e-5)
+    assert (tinyimagenet._PEAK_LR, tinyimagenet._WEIGHT_DECAY) == (4.5e-5, 1.4e-3)
 
 
 def test_tinyimagenet_learning_rate_warms_up_then_decays_to_zero():
@@ -114,18 +112,6 @@ def test_tinyimagenet_rows_let_adam_scale_up_tiny_pc_gradients():
     for algo in ALGORITHMS:
         make = ROWS[f"{FAMILY}-{algo}"].optimizer_factory
         assert last_step(make(1000), 1e-10) > 0.5 * last_step(make(1000), 1e-2)
-
-
-def test_tinyimagenet_backprop_optimizer_decays_weights_less_than_pc():
-    def decay_step(algo):
-        opt = ROWS[f"{FAMILY}-{algo}"].optimizer_factory(1000)
-        params = {"w": jnp.ones(4)}
-        state = opt.init(params)
-        for _ in range(200):
-            updates, state = opt.update({"w": jnp.zeros(4)}, state, params)
-        return float(jnp.abs(updates["w"]).max())
-
-    assert decay_step("backprop") < 0.1 * decay_step("spc")
 
 
 def test_tinyimagenet_pc_rows_have_the_safety_net():

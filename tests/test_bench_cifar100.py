@@ -73,9 +73,9 @@ def test_cifar100_rows_use_pcx_pc_ce_settings(rng_key):
 def test_cifar100_learning_rate_warms_up_then_decays_to_zero():
     from fabricpc.bench import cifar100
 
-    lr = cifar100._lr_schedule(1000, cifar100._PC_PEAK_LR)
+    lr = cifar100._lr_schedule(1000, cifar100._PEAK_LR)
     assert float(lr(0)) == 0.0
-    assert float(lr(100)) == pytest.approx(cifar100._PC_PEAK_LR)
+    assert float(lr(100)) == pytest.approx(cifar100._PEAK_LR)
     assert float(lr(1000)) == pytest.approx(0.0, abs=1e-12)
 
 
@@ -118,26 +118,8 @@ def test_cifar100_loaders_augment_training_images_only(monkeypatch):
     assert isinstance(test, FakeCifar100)
 
 
-def test_cifar100_backprop_row_uses_pcx_backprop_weight_settings():
-    # pcx tuned backprop on its own for CIFAR-100 (VGG5_BP_CE_cifar100.yaml):
-    # a much smaller weight decay than its PC config, and a slightly lower rate.
+def test_cifar100_rows_use_pcx_pc_ce_weight_settings():
+    # VGG5_PCN_CE_cifar100.yaml, rounded; one setting for all three rows.
     from fabricpc.bench import cifar100
 
-    assert cifar100._weight_settings("backprop") == (2.1e-4, 2.2e-5)
-    assert cifar100._weight_settings("spc") == (2.2e-4, 7.6e-3)
-    assert cifar100._weight_settings("epc") == (2.2e-4, 7.6e-3)
-
-
-def test_cifar100_backprop_optimizer_decays_weights_less_than_pc():
-    import jax.numpy as jnp
-
-    def decay_step(algo):
-        opt = ROWS[f"{FAMILY}-{algo}"].optimizer_factory(1000)
-        params = {"w": jnp.ones(4)}
-        state = opt.init(params)
-        # No gradient, so after warmup the update is only the weight decay.
-        for _ in range(200):
-            updates, state = opt.update({"w": jnp.zeros(4)}, state, params)
-        return float(jnp.abs(updates["w"]).max())
-
-    assert decay_step("backprop") < 0.01 * decay_step("spc")
+    assert (cifar100._PEAK_LR, cifar100._WEIGHT_DECAY) == (2.2e-4, 7.6e-3)
