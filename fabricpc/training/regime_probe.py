@@ -90,6 +90,26 @@ def weight_norm_columns(params: GraphParams) -> Dict[str, Tuple[str, str]]:
     return columns
 
 
+def _epc_segment(configured) -> Optional[EPCInference]:
+    """The one ePC solver in the graph's inference, if there is one.
+
+    A plain EPCInference is itself; an InferenceSchedule is searched through
+    its segments. Several ePC segments are ambiguous, so they raise.
+    """
+    if configured is None:
+        return None
+    segments = getattr(configured, "segments", None)
+    solvers = [s for s, _ in segments()] if segments else [configured]
+    found = [s for s in solvers if isinstance(s, EPCInference)]
+    if len(found) > 1:
+        raise ValueError(
+            f"the inference schedule has {len(found)} EPCInference segments "
+            f"({', '.join(repr(s.config) for s in found)}); pass inference= "
+            "to say which one the regime judges"
+        )
+    return found[0] if found else None
+
+
 class RegimeProbe:
     """Record the excited ε-spectrum, the regime flags, and the weight norms
     every ``every`` updates of a ``train`` run.
@@ -104,10 +124,14 @@ class RegimeProbe:
             regime judges; ``None`` reads ``structure.config["inference"]``
             when that is an ``EPCInference``. The regime is recorded only
             under ``algorithm="pc"`` with such a solver. Under an
-            ``InferenceSchedule`` pass the ePC segment explicitly; the
-            regime then describes that segment's relaxation, not the
-            schedule's final state. With ``None`` and no ``EPCInference``
-            configured, the regime columns stay empty.
+            ``InferenceSchedule``, ``None`` finds its one ePC segment (with
+            several, pass the one to judge). The regime then describes that
+            segment's (eta, T) at the segment's incoming state; the sPC
+            refinement after it moves the latents further, so the final
+            state is more relaxed than the label says. Under
+            ``algorithm="pc"`` with no ePC solver at all the probe raises at
+            its first update instead of writing empty regime columns; a
+            ``"backprop"`` control run records without a regime.
         iters: Lanczos steps per probe.
         key: PRNG key for the probe's latent initialization and the random
             Lanczos start when the gradient is zero.
@@ -140,8 +164,7 @@ class RegimeProbe:
         self.key = key
         self.csv_path = None if csv_path is None else Path(csv_path)
         if inference is None:
-            configured = structure.config.get("inference")
-            inference = configured if isinstance(configured, EPCInference) else None
+            inference = _epc_segment(structure.config.get("inference"))
         self.inference = inference
         self.rows: List[Dict[str, Any]] = []
         self.metadata: Dict[str, Any] = {}
@@ -168,6 +191,13 @@ class RegimeProbe:
     def _set_metadata(self, algorithm: str) -> None:
         if self.metadata:
             return
+        if algorithm == "pc" and self.inference is None:
+            # Blank regime columns would look like a healthy CSV (issue #74).
+            raise ValueError(
+                "RegimeProbe under algorithm='pc' needs an EPCInference to "
+                "judge, and the graph's solver has none; pass inference= "
+                "explicitly, or use the probe on a backprop control run"
+            )
         regime_active = algorithm == "pc" and self.inference is not None
         self.metadata = {
             "trainer": algorithm,

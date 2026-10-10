@@ -323,3 +323,54 @@ class TestWithTrain:
         assert all(isinstance(m, dict) for epoch in result.iter_results for m in epoch)
         _assert_rows(probe, structure, result.params, regime=(algorithm == "pc"))
         _assert_round_trip(probe, tmp_path, regime=(algorithm == "pc"))
+
+
+class TestScheduleInference:
+    """Issue #74: under an InferenceSchedule the regime columns were blank."""
+
+    def test_the_single_epc_segment_of_a_schedule_is_found(self, rng_key):
+        from fabricpc.core.inference import InferenceSchedule, InferenceSGD
+
+        epc = EPCInference(eta_infer=2e-3, infer_steps=3)
+        structure = _mlp(
+            InferenceSchedule(epc, InferenceSGD(eta_infer=0.05, infer_steps=4))
+        )
+        probe = RegimeProbe(structure, None, every=EVERY, key=rng_key)
+
+        assert probe.inference is epc
+        params = initialize_params(structure, rng_key)
+        _drive(probe, structure, params, "pc", rng_key)
+        assert probe.metadata["eta_infer"] == 2e-3
+        assert all(row["f_weighted"] is not None for row in probe.probe_rows())
+
+    def test_two_epc_segments_need_an_explicit_choice(self, rng_key):
+        from fabricpc.core.inference import InferenceSchedule
+
+        structure = _mlp(
+            InferenceSchedule(
+                EPCInference(eta_infer=1e-3, infer_steps=2),
+                EPCInference(eta_infer=1e-2, infer_steps=2),
+            )
+        )
+        with pytest.raises(ValueError, match="EPCInference"):
+            RegimeProbe(structure, None, every=EVERY, key=rng_key)
+
+    def test_a_pc_run_with_no_epc_solver_is_refused_not_left_blank(self, rng_key):
+        from fabricpc.core.inference import InferenceSGD
+
+        structure = _mlp(InferenceSGD(eta_infer=0.05, infer_steps=4))
+        probe = RegimeProbe(structure, None, every=EVERY, key=rng_key)
+        params = initialize_params(structure, rng_key)
+
+        with pytest.raises(ValueError, match="inference="):
+            _drive(probe, structure, params, "pc", rng_key)
+
+    def test_a_backprop_control_run_still_records_without_a_regime(self, rng_key):
+        from fabricpc.core.inference import InferenceSGD
+
+        structure = _mlp(InferenceSGD(eta_infer=0.05, infer_steps=4))
+        probe = RegimeProbe(structure, None, every=EVERY, key=rng_key)
+        params = initialize_params(structure, rng_key)
+
+        _drive(probe, structure, params, "backprop", rng_key)
+        assert probe.probe_rows()

@@ -167,8 +167,8 @@ Symbols: η is `eta_infer`, T is `infer_steps`, λ_max is the largest excited ei
 - Action: measure λ_max with `epsilon_spectrum` and set η below 2/λ_max. Swapping to `InferenceSGDNormClip` changes solver family; it does not fix an ePC rate.
 
 **The probe CSV has blank regime columns**
-- Cause: under `algorithm="backprop"` the regime is empty by design (the control run). Under `algorithm="pc"` with an `InferenceSchedule`, `RegimeProbe(inference=None)` finds no `EPCInference` in `structure.config["inference"]` and records no regime.
-- Action: pass the ePC segment: `RegimeProbe(structure, probe_clamps, every=..., inference=epc, key=...)`.
+- Cause: under `algorithm="backprop"` the regime is empty by design (the control run). Under `algorithm="pc"` the probe finds the ePC solver itself, also inside an `InferenceSchedule`; with several ePC segments it raises at construction, and with none it raises at the first update.
+- Action: with several ePC segments, pass the one to judge: `RegimeProbe(structure, probe_clamps, every=..., inference=epc, key=...)`.
 
 ---
 

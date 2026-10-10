@@ -506,7 +506,14 @@ def run_trial(args, trial_seed):
     # norms every --track_regime updates on the fixed probe batch, the test
     # accuracy per epoch, written to a CSV after every epoch.
     probe = None
-    if args.track_regime > 0:
+    if (
+        args.track_regime > 0
+        and trainer_mode == "pc"
+        and not isinstance(inference, EPCInference)
+    ):
+        # The regime judges an ePC solver; there is none to judge here.
+        print("--track_regime: the regime needs an ePC solver; skipped for sPC")
+    elif args.track_regime > 0:
         if trainer_mode == "backprop":
             csv_name = "epc_regime_track__backprop.csv"
         else:

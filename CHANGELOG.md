@@ -10,6 +10,9 @@
 - Benchmark trials record `diagnostics` at init and after training: how closely each layer's PC update matches backprop's, and the network's stiffness (`fabricpc.bench.diagnostics`).
 - `latent_curvature` / `make_latent_curvature` (`fabricpc.core.latent_curvature`): the stiffness a state-based settle sees, whose reciprocal bounds its stable rate.
 
+### Fixed
+- `RegimeProbe` under an `InferenceSchedule` finds the schedule's ePC segment instead of writing empty regime columns; several ePC segments raise and ask for `inference=`, and an `algorithm="pc"` run with no ePC solver raises at the first update (issue #74). The ResNet-18 demo skips `--track_regime` for sPC.
+
 ## [0.6.0] - 2026-09-14
 ePC error-parameterized predictive coding (`EPCInference`) arrives as a drop-in solver alongside composable ePC + sPC inference schedules and first-class cyclic graphs (`graph(..., unroll=U)`); start with `docs/user_guides/17_training_with_epc.md`.
 
