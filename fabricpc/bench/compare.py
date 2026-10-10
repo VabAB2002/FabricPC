@@ -19,12 +19,13 @@ import json
 import math
 from dataclasses import asdict
 from pathlib import Path
-from typing import Optional, Sequence, Tuple
+from typing import List, Optional, Sequence, Tuple
 
 from fabricpc.bench.ci import paired_ci95
 from fabricpc.bench.manifest import SCHEMA_VERSION
 from fabricpc.bench.registry import BenchmarkRow, Comparison
 from fabricpc.bench.runner import _TRAINER_ALGORITHM
+from fabricpc.bench.stats import hedges_gz, holm
 from fabricpc.experiments import ExperimentArm, PlannedMultiContrastResults
 from fabricpc.experiments.ab_experiment import TrialResult as ArmTrial
 from fabricpc.training import evaluate, train
@@ -161,6 +162,28 @@ def _with_ci(res: PlannedMultiContrastResults, contrast: dict) -> dict:
     return {**contrast, "ci95_low": low, "ci95_high": high}
 
 
+def corrected(contrasts: List[dict]) -> List[dict]:
+    """A family's contrasts with Holm-adjusted p-values and Hedges' g_z.
+
+    Rows that score exactly the same on every seed have no spread to test;
+    the t-test then gives NaN, so they are written as what they are: a
+    difference of 0, p = 1.
+    """
+    fixed = []
+    for c in contrasts:
+        c = dict(c)
+        if c["mean_diff"] == 0 and not c["se_diff"]:
+            c.update(p_value=1.0, t_statistic=0.0, cohens_d=0.0)
+            c["significant_at_05"] = False
+        fixed.append(c)
+    for c, p in zip(fixed, holm([c["p_value"] for c in fixed])):
+        c["p_holm"] = p
+        c["significant_holm_05"] = bool(p < 0.05)
+        c["effect_size"] = "d_z (paired)"
+        c["hedges_gz"] = hedges_gz(c["cohens_d"], n=int(c["n"]))
+    return fixed
+
+
 def compare_family(results_dir, comparison: Comparison, *, metric: str) -> dict:
     """Run a family's planned contrasts and write ``compare-<family>.json``."""
     res = planned_results(
@@ -177,7 +200,9 @@ def compare_family(results_dir, comparison: Comparison, *, metric: str) -> dict:
         "n_trials": res.n_trials,
         "unpaired_seeds": _pair_on_shared_seeds(results_dir, comparison.rows)[2],
         "num_epochs": res.num_epochs,
-        "contrasts": [_with_ci(res, _plain(asdict(c))) for c in res.contrast_results()],
+        "contrasts": corrected(
+            [_with_ci(res, _plain(asdict(c))) for c in res.contrast_results()]
+        ),
     }
     # The family's own metric keeps the plain name; any other metric gets its
     # own file, so comparing on a second metric never overwrites the first.

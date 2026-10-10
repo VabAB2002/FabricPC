@@ -211,6 +211,10 @@ class Contrast:
     cohens_d: float
     ci95_low: float = math.nan  # 95% t interval for mean_diff
     ci95_high: float = math.nan
+    p_holm: float = math.nan  # equals p_value: one test, nothing to correct
+    significant_holm_05: bool = False
+    effect_size: str = "d_z (paired)"  # what cohens_d is
+    hedges_gz: float = math.nan  # d_z with Hedges' small-sample correction
     schema_version: int = SCHEMA_VERSION
 
 
@@ -220,7 +224,7 @@ def compare_rows(results_dir, row_a: str, row_b: str, *, metric: str) -> Contras
     The statistics come from fabricpc.experiments' planned-contrast results
     (see ``fabricpc.bench.compare``), the same code every comparison uses.
     """
-    from fabricpc.bench.compare import planned_results
+    from fabricpc.bench.compare import corrected, planned_results
 
     res = planned_results(
         results_dir, rows=(row_a, row_b), contrasts=((row_a, row_b),), metric=metric
@@ -241,6 +245,8 @@ def compare_rows(results_dir, row_a: str, row_b: str, *, metric: str) -> Contras
         ci95_low=low,
         ci95_high=high,
     )
+    (extras,) = corrected([asdict(contrast)])
+    contrast = Contrast(**{k: extras[k] for k in asdict(contrast)})
     path = Path(results_dir) / f"compare-{row_a}-vs-{row_b}.json"
     path.write_text(json.dumps(asdict(contrast), indent=2))
     return contrast

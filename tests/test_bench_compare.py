@@ -9,6 +9,7 @@ from fabricpc.bench.compare import arm_for_row, compare_family, planned_results
 from fabricpc.bench.manifest import SCHEMA_VERSION
 from fabricpc.bench.registry import COMPARISONS, ROWS
 from fabricpc.bench.runner import run_trial
+from fabricpc.bench.stats import hedges_gz, holm
 from fabricpc.experiments import PlannedMultiContrastExperiment
 from fabricpc.experiments.statistics import paired_ttest
 from tests.test_bench_runner import fake_mnist_loaders
@@ -185,3 +186,36 @@ def test_comparing_on_another_metric_does_not_overwrite_the_main_one(tmp_path):
     other = json.loads((tmp_path / "compare-mnist-mlp-energy.json").read_text())
     assert main["metric"] == "accuracy"
     assert other["metric"] == "energy"
+
+
+def test_a_family_corrects_its_three_p_values_and_shrinks_the_effect_size(tmp_path):
+    write_trials(tmp_path, "mnist-mlp-spc", [0.90, 0.92, 0.94, 0.93])
+    write_trials(tmp_path, "mnist-mlp-epc", [0.92, 0.93, 0.95, 0.95], algorithm="epc")
+    write_trials(
+        tmp_path, "mnist-mlp-backprop", [0.91, 0.91, 0.92, 0.95], algorithm="backprop"
+    )
+
+    out = compare_family(tmp_path, COMPARISONS["mnist-mlp"], metric="accuracy")
+
+    cs = out["contrasts"]
+    assert [c["p_holm"] for c in cs] == pytest.approx(holm([c["p_value"] for c in cs]))
+    for c in cs:
+        assert c["p_holm"] >= c["p_value"]
+        assert c["significant_holm_05"] == (c["p_holm"] < 0.05)
+        assert c["hedges_gz"] == pytest.approx(hedges_gz(c["cohens_d"], n=4))
+        assert c["effect_size"] == "d_z (paired)"
+
+
+def test_rows_with_identical_results_show_no_difference_not_nan(tmp_path):
+    write_trials(tmp_path, "mnist-mlp-spc", [0.90, 0.91, 0.92])
+    write_trials(tmp_path, "mnist-mlp-epc", [0.90, 0.91, 0.92], algorithm="epc")
+    write_trials(
+        tmp_path, "mnist-mlp-backprop", [0.90, 0.91, 0.92], algorithm="backprop"
+    )
+
+    out = compare_family(tmp_path, COMPARISONS["mnist-mlp"], metric="accuracy")
+
+    for c in out["contrasts"]:
+        assert c["mean_diff"] == 0.0
+        assert c["p_value"] == 1.0 and c["p_holm"] == 1.0
+        assert c["significant_at_05"] is False

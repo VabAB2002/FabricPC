@@ -25,7 +25,8 @@ from fabricpc.bench.registry import BenchmarkRow
 # 3: summary lists checkpoints and aggregates peak memory; compare files carry
 #    a version too
 # 4: summary says how PC-like the runs were (epc_regime, backprop_alignment);
-#    trials and summary carry eval_batches_capped; manifest carries git_dirty
+#    trials and summary carry eval_batches_capped; manifest carries git_dirty;
+#    contrasts carry p_holm, significant_holm_05, effect_size, hedges_gz
 SCHEMA_VERSION = 4
 
 

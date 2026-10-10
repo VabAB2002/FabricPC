@@ -27,10 +27,12 @@ import csv
 import datetime
 import html
 import json
+import math
 import re
 import statistics
 from pathlib import Path
 
+from fabricpc.bench.stats import holm
 from fabricpc.bench.summary import regime_summary
 
 ROW_FILES = ("summary.json", "manifest.json", "trials.csv")
@@ -356,20 +358,37 @@ def _family_blocks(folder: Path, row_dirs: list, root: Path) -> list:
     if contrasts:
         blocks.append(("h", 3, "Paired comparisons"))
         ctable = []
+        # Older compare files have no Holm-adjusted p-values; work them out
+        # over the contrasts shown here.
+        if any("p_holm" not in c for c in contrasts):
+            ps = [
+                (
+                    c.get("p_value")
+                    if isinstance(c.get("p_value"), (int, float))
+                    else math.nan
+                )
+                for c in contrasts
+            ]
+            contrasts = [{**c, "p_holm": h} for c, h in zip(contrasts, holm(ps))]
         arms = [c.get("arm_a") or "" for c in contrasts] + list(rows)
         mixed = len({_family_of(a) for a in arms}) > 1
         for c in contrasts:
             a, b = _short(c.get("arm_a"), rows), _short(c.get("arm_b"), rows)
             if mixed:
                 b += f" ({_family_of(c.get('arm_a') or '')})"
-            sig = c.get("significant_at_05")
-            # A handful of seeds and several contrasts with no correction:
-            # say what the test says, not more.
+            # A handful of seeds and several contrasts: judge on the
+            # Holm-adjusted p and say what the test says, not more.
+            p, p_holm = c.get("p_value"), c.get("p_holm")
+            sig = (
+                None
+                if not isinstance(p_holm, (int, float)) or p_holm != p_holm
+                else p_holm < 0.05
+            )
             words = {
-                True: "yes (p < 0.05, uncorrected)",
+                True: "yes (Holm-adjusted p < 0.05)",
                 False: "no, could be seed noise",
             }
-            p = c.get("p_value")
+            g = c.get("hedges_gz")
             ci = _ci(c)
             ctable.append(
                 [
@@ -378,12 +397,14 @@ def _family_blocks(folder: Path, row_dirs: list, root: Path) -> list:
                     _sign(c.get("mean_diff")),
                     f"[{_sign(ci[0])}, {_sign(ci[1])}]" if ci else "-",
                     f"{p:.3g}" if isinstance(p, (int, float)) else "-",
+                    _fmt_p(p_holm),
+                    f"{g:+.2f}" if isinstance(g, (int, float)) and g == g else "-",
                     str(c.get("n", "-")),
                     words.get(sig, "-"),
                 ]
             )
         head = ["difference (a - b)", "metric", "mean diff", "95% CI of diff"]
-        head += ["p-value", "pairs"]
+        head += ["p-value", "Holm p", "effect (Hedges g_z)", "pairs"]
         blocks.append(("table", head + ["significant at 5%?"], ctable))
     blocks += _provenance_blocks(rows)
     blocks += _notes_blocks(folder, root)
@@ -392,6 +413,10 @@ def _family_blocks(folder: Path, row_dirs: list, root: Path) -> list:
         blocks.append(("p", "Skipped or partial:"))
         blocks.append(("list", all_notes))
     return blocks
+
+
+def _fmt_p(p):
+    return f"{p:.3g}" if isinstance(p, (int, float)) and p == p else "-"
 
 
 def _sign(x):

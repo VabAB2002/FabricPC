@@ -115,9 +115,10 @@ def test_paired_comparisons_are_said_in_plain_words(tmp_path):
     assert "spc - backprop" in text
     assert "-0.0229" in text
     assert "0.0017" in text
-    # Three seeds and three contrasts: p < 0.05 is not proof, so the page
-    # says what the test says and no more.
-    assert "yes (p < 0.05, uncorrected)" in text
+    # Several contrasts at once: the verdict uses Holm-adjusted p-values,
+    # worked out here from an older compare file that has none (0.0017 * 2).
+    assert "0.0034" in text
+    assert "yes (Holm-adjusted p < 0.05)" in text
     assert "no, could be seed noise" in text
     assert "a real difference" not in text
 

@@ -285,13 +285,13 @@ def cmd_list() -> int:
 
 
 def _print_contrast(a, b, metric, c) -> None:
-    sig = "yes" if c["significant_at_05"] else "no"
+    sig = "yes" if c["significant_holm_05"] else "no"
     print(
         f"{a} - {b} on {metric}: {c['mean_diff']:+.4f} "
         f"(se {c['se_diff']:.4f}, "
         f"95% CI [{c['ci95_low']:+.4f}, {c['ci95_high']:+.4f}], "
-        f"p={c['p_value']:.3g}, d={c['cohens_d']:.2f}, "
-        f"n={c['n']}, significant at 5%: {sig})"
+        f"p={c['p_value']:.3g}, Holm p={c['p_holm']:.3g}, "
+        f"g_z={c['hedges_gz']:.2f}, n={c['n']}, significant at 5% (Holm): {sig})"
     )
 
 

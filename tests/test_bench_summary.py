@@ -172,3 +172,14 @@ def test_comparing_on_a_metric_some_trials_lack_says_so(tmp_path):
 
     with pytest.raises(ValueError, match="energy"):
         compare_rows(tmp_path, "a-mlp-spc", "a-mlp-epc", metric="energy")
+
+
+def test_a_two_row_comparison_carries_the_same_extras_as_a_family(tmp_path):
+    write_trials(tmp_path, "a-mlp-spc", [0.90, 0.92, 0.94])
+    write_trials(tmp_path, "a-mlp-epc", [0.91, 0.92, 0.96], algorithm="epc")
+
+    c = compare_rows(tmp_path, "a-mlp-spc", "a-mlp-epc", metric="accuracy")
+
+    assert c.p_holm == c.p_value  # one test, nothing to correct
+    assert c.effect_size == "d_z (paired)"
+    assert c.hedges_gz == pytest.approx(c.cohens_d * (1 - 3 / 7))
