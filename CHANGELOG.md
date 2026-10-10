@@ -12,6 +12,7 @@
 
 - `fabricpc.experiments.welch_ttest`: Welch's unpaired two-sample t-test, for comparing a run against a baseline window of a different size.
 - `python -m fabricpc.bench trend add|check --history DIR`: a per-row history of runs and a rolling-baseline regression check (issue #54).
+- `.github/workflows/nightly.yml`: a scheduled CPU job with every extra and the newest jax, the full test suite, an example end to end, the benchmark's `regress` subset kept on a `bench-history` branch and checked with `trend`, and an issue opened when a night fails (issue #53).
 
 ### Fixed
 - `RegimeProbe` under an `InferenceSchedule` finds the schedule's ePC segment instead of writing empty regime columns; several ePC segments raise and ask for `inference=`, and an `algorithm="pc"` run with no ePC solver raises at the first update (issue #74). The ResNet-18 demo skips `--track_regime` for sPC.

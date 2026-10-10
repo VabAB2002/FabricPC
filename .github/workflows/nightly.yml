@@ -1,0 +1,110 @@
+name: Nightly
+
+# Issue #53. Per-PR CI only runs when someone pushes, only with the extras
+# it installs, and never runs an example end to end. Every night this job:
+# installs every extra with a fresh resolve of the newest jax, runs the whole
+# test suite (including the [tfds] and [viz] tests that per-PR CI skips),
+# runs one example end to end, runs the benchmark's reduced subset
+# (`regress`), and keeps its results on the `bench-history` branch, where
+# `trend check` compares tonight against the nights before (issue #54).
+# A failure opens (or comments on) one issue, so nobody has to poll.
+# A GPU leg waits for GPU runners (issue #52).
+#
+# Scheduled workflows run only from the default branch.
+
+on:
+  schedule:
+    - cron: "17 6 * * *" # 06:17 UTC; off the hour, when runners are busiest
+  workflow_dispatch:
+
+permissions:
+  contents: write # push the benchmark history
+  issues: write # report a failed night
+
+concurrency:
+  group: nightly
+  cancel-in-progress: false
+
+jobs:
+  nightly-cpu:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install every extra, newest jax
+        # No pip cache: the point is a fresh resolve against tonight's releases.
+        run: |
+          python -m pip install -U pip
+          pip install -U -e ".[dev,experiments,tfds,viz]"
+      - name: Report the resolved versions
+        run: python -c "import jax, jaxlib, optax; print(jax.__version__, jaxlib.__version__, optax.__version__)"
+      - name: Machine check
+        run: python -m fabricpc.bench doctor --out regress-results
+      - name: Full test suite, extras included
+        run: pytest -q
+      - name: An example end to end
+        run: python examples/mnist_demo.py
+      - name: Benchmark reduced subset
+        run: python -m fabricpc.bench regress --out regress-results
+      - name: Check the result files are complete
+        run: python -m fabricpc.bench validate regress-results
+      - name: Fetch the benchmark history
+        if: always()
+        run: |
+          if git fetch origin bench-history; then
+            git worktree add bench-history origin/bench-history
+          else
+            # First night: an empty branch with nothing but the history.
+            git worktree add --detach bench-history
+            git -C bench-history checkout -q --orphan bench-history-new
+            git -C bench-history rm -rfq .
+          fi
+      - name: Record tonight and compare with the nights before
+        id: trend
+        if: always()
+        run: |
+          if [ -d regress-results ]; then
+            python -m fabricpc.bench trend add regress-results --history bench-history/history
+          fi
+          python -m fabricpc.bench trend check --history bench-history/history | tee trend.txt
+      - name: Save the history
+        if: always()
+        working-directory: bench-history
+        run: |
+          git config user.name "fabricpc-nightly"
+          git config user.email "fabricpc-nightly@users.noreply.github.com"
+          git add -A history
+          if ! git diff --cached --quiet; then
+            git commit -q -m "Nightly benchmark history ${GITHUB_SHA::10}"
+            git push origin HEAD:bench-history
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: nightly-results
+          path: |
+            regress-results
+            trend.txt
+      - name: Report a failed night
+        if: failure() && github.event_name == 'schedule'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = "Nightly run failed";
+            const run = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const open = await github.rest.issues.listForRepo({
+              ...context.repo, state: "open", labels: "nightly",
+            });
+            const found = open.data.find((i) => i.title === title);
+            const body = `The nightly job failed on ${context.sha.slice(0, 10)}: ${run}`;
+            if (found) {
+              await github.rest.issues.createComment({
+                ...context.repo, issue_number: found.number, body,
+              });
+            } else {
+              await github.rest.issues.create({
+                ...context.repo, title, body, labels: ["nightly"],
+              });
+            }
