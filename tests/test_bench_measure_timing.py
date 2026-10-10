@@ -1,5 +1,7 @@
 """Tests for how time_steps reads the training data."""
 
+import pytest
+
 from fabricpc.bench import measure
 from fabricpc.bench.registry import ROWS
 from tests.test_bench_runner import fake_mnist_loaders
@@ -102,3 +104,43 @@ def test_timing_leaves_the_callers_params_usable(rng_key):
 
     same = jax.tree_util.tree_map(lambda a, b: bool((a == b).all()), params, before)
     assert all(jax.tree_util.tree_leaves(same))
+
+
+def test_warmup_and_compile_stay_out_of_the_step_time(monkeypatch, rng_key):
+    # A fake step that is slow for its first few calls, the way compiling
+    # and first-run costs are, then quick. A fake clock moves by exactly each
+    # step's length, so the answer does not depend on how busy the machine is.
+    import types
+
+    now = [0.0]
+    calls = []
+
+    def fake_training_step(structure, optimizer, *, algorithm):
+        def step(params, opt_state, batch, key):
+            calls.append(1)
+            now[0] += 0.2 if len(calls) <= 3 else 0.01
+            return params, opt_state, {}
+
+        return step  # not jitted, so it is used as it is
+
+    monkeypatch.setattr(measure, "training_step", fake_training_step)
+    monkeypatch.setattr(
+        measure, "time", types.SimpleNamespace(perf_counter=lambda: now[0])
+    )
+    row = ROWS["mnist-mlp-backprop"]
+    train, _ = fake_mnist_loaders(rng_key, n_batches=4)
+    params, structure = row.model_factory(rng_key)
+
+    timing = measure.time_steps(
+        params,
+        structure,
+        row.optimizer_factory(4),
+        train,
+        rng_key,
+        algorithm="backprop",
+        warmup_steps=2,
+        timed_steps=5,
+    )
+
+    assert len(calls) == 1 + 2 + 5  # first call, warmup, timed
+    assert timing.step_time_ms == pytest.approx(10.0)  # not the 200 ms ones

@@ -150,7 +150,9 @@ def summarize_row(results_dir, row_id: str) -> RowSummary:
             "one mean would describe no run; rerun the short ones (--resume "
             "with the same --epochs) or use another --out"
         )
-    metric_names = sorted(ok[0]["metrics"].keys())
+    # Only metrics every good trial has: trials written before a metric
+    # existed (say forward_accuracy) lack it.
+    metric_names = sorted(set.intersection(*(set(t["metrics"]) for t in ok)))
     metrics = {name: _stats([t["metrics"][name] for t in ok]) for name in metric_names}
     timing = {
         key: _stats([t[key] for t in ok])

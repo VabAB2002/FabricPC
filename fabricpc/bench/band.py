@@ -20,6 +20,7 @@ that survived would be a biased sample. Anything else, like the CI smoke
 run, is marked not comparable instead of passing or failing by accident.
 """
 
+import math
 from dataclasses import asdict, dataclass, replace
 from typing import Optional
 
@@ -91,6 +92,13 @@ def check_band(row: BenchmarkRow, summary: RowSummary) -> BandVerdict:
     if stats is None:
         return replace(base, reason=f"the run did not report {ref.metric}")
 
+    if not math.isfinite(stats["mean"]):
+        return replace(
+            base,
+            status="fail",
+            reason=f"{ref.metric} is not a number: at least one seed diverged",
+            observed=stats["mean"],
+        )
     band = max(ref.floor, 2.0 * stats["se"])
     diff = stats["mean"] - ref.value
     passed = abs(diff) <= band

@@ -146,3 +146,22 @@ def test_a_transformer_counts_its_own_weights_and_attention(rng_key):
     assert c.flops_per_pass == expected
     assert c.weighted_edges == 2 * 6 + 1  # six weight matrices a layer, W_out
     assert c.pc_to_backprop_ratio == pytest.approx((2 * c.infer_steps + 1) / 3)
+
+
+def test_vgg5_flops_match_a_count_by_hand(rng_key):
+    # Worked out from the layer list, not from the code: each 3x3 conv runs
+    # on its grid before pooling (32, 16, 8, 4 wide), then the 2048 -> 10
+    # classifier. Batch 128, FLOPs = 2 * multiply-adds.
+    params, structure = build("cifar10-vgg5-spc", rng_key)
+    madds = (
+        32 * 32 * 3 * 3 * 3 * 128
+        + 16 * 16 * 3 * 3 * 128 * 256
+        + 8 * 8 * 3 * 3 * 256 * 512
+        + 4 * 4 * 3 * 3 * 512 * 512
+        + 2048 * 10
+    )
+
+    c = count_compute(params, structure, batch_size=128, algorithm="spc")
+
+    assert c.weighted_edges == 5
+    assert c.flops_per_pass == 2 * 128 * madds == 49_229_594_624

@@ -58,6 +58,24 @@ class TestBackpropAlignment:
             assert layer["cos"] == pytest.approx(1.0, abs=1e-3)
         assert out["min_cos"] == pytest.approx(1.0, abs=1e-3)
 
+    @pytest.mark.parametrize("steps", [1, 5])
+    def test_epc_from_zero_error_is_backprop_scaled_by_steps_times_rate(self, steps):
+        # ePC paper (Goemaere et al.), one step from zero error: the error
+        # moves by -eta times backprop's activation gradient, so a hidden
+        # layer's update is backprop's times eta (times T steps while eta is
+        # tiny), and the output layer's is backprop's own.
+        eta = 1e-4
+        params, structure = _build(
+            "epc", EPCInference(eta_infer=eta, infer_steps=steps)
+        )
+        out = backprop_alignment(
+            params, structure, _batch(), jax.random.PRNGKey(2), "epc"
+        )
+        layers = out["layers"]
+        for hidden in ("hidden1", "hidden2"):
+            assert layers[hidden]["size_ratio"] == pytest.approx(steps * eta, rel=0.02)
+        assert layers["class"]["size_ratio"] == pytest.approx(1.0, rel=0.02)
+
     def test_reports_each_layer_and_the_weakest_one(self):
         params, structure = _build("spc")
         out = backprop_alignment(
@@ -143,6 +161,7 @@ def test_diagnostics_can_be_turned_off(tmp_path, rng_key):
         timed_steps=2,
         diagnostics=False,
     )
+    assert result.status == "ok", result.error
     assert result.diagnostics is None
 
 

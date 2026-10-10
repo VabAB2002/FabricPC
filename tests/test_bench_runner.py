@@ -70,6 +70,7 @@ def test_each_trial_gets_its_own_seed(tmp_path, rng_key):
     r1 = run_trial(
         row, 1, tmp_path, loaders=loaders, num_epochs=1, warmup_steps=1, timed_steps=2
     )
+    assert (r0.status, r1.status) == ("ok", "ok")  # a crash sets the seed too
     assert r0.seed == 0
     assert r1.seed == 1000
 
@@ -133,6 +134,7 @@ def test_no_zoo_dir_means_no_checkpoint(tmp_path, rng_key):
         warmup_steps=1,
         timed_steps=2,
     )
+    assert result.status == "ok", result.error  # a crash has no checkpoint either
     assert result.checkpoint is None
 
 
@@ -145,6 +147,7 @@ def test_epc_trials_record_their_regime_at_the_start_and_the_end(tmp_path, rng_k
     assert "band" in epc.epc_regime["final"]
 
     spc = run_trial(ROWS["mnist-mlp-spc"], 0, tmp_path, **kw)
+    assert spc.status == "ok", spc.error
     assert spc.epc_regime is None
 
 
@@ -177,6 +180,7 @@ def test_curve_batches_zero_turns_the_curve_off(tmp_path, rng_key):
         timed_steps=2,
         curve_batches=0,
     )
+    assert result.status == "ok", result.error
     assert result.curve is None
 
 
@@ -287,4 +291,5 @@ def test_rows_without_rate_control_record_none(tmp_path, rng_key):
         warmup_steps=1,
         timed_steps=2,
     )
+    assert result.status == "ok", result.error
     assert result.rate_control is None

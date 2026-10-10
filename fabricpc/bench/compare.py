@@ -113,6 +113,14 @@ def planned_results(
             f"these rows were trained for different numbers of epochs {lengths}; "
             "a paired test only means something between runs of the same length"
         )
+    lacking = sorted(
+        {r for r in rows for t in trials[r] if metric not in (t.get("metrics") or {})}
+    )
+    if lacking:
+        raise ValueError(
+            f"some trials of {lacking} have no {metric!r} (written before that "
+            "metric existed?); compare on another metric or rerun them"
+        )
     per_arm = {
         row_id: [
             ArmTrial(

@@ -97,3 +97,10 @@ def test_a_run_scored_on_part_of_the_test_set_is_not_compared():
     v = check_band(_row(0.98), s)
     assert v.status == "not_comparable"
     assert "test" in v.reason
+
+
+def test_a_diverged_run_fails_and_says_why():
+    # A NaN mean means a seed blew up: that is a fail, said in words.
+    v = check_band(_row(0.98), _summary(mean=float("nan"), se=float("nan")))
+    assert v.status == "fail"
+    assert "not a number" in v.reason

@@ -339,3 +339,18 @@ def test_paired_comparisons_show_the_interval_of_the_difference(tmp_path):
     text = render(build_report(tmp_path), "md")
     assert "95% CI of diff" in text
     assert "[-0.0270, -0.0188]" in text
+
+
+def test_a_diverged_row_and_a_failed_seed_do_not_break_the_page(tmp_path):
+    family = tmp_path / "cifar10-vgg5"
+    _write_row(family, "cifar10-vgg5-backprop", "backprop", acc=0.86, se=0.001)
+    bad = _write_row(family, "cifar10-vgg5-epc", "epc", acc=0.1, se=0.01)
+    summary = json.loads((bad / "summary.json").read_text())
+    summary["metrics"]["accuracy"]["mean"] = float("nan")
+    summary["n_failed"] = 2
+    (bad / "summary.json").write_text(json.dumps(summary))
+
+    page = render(build_report(tmp_path), "md")
+
+    assert "cifar10-vgg5-epc" in page
+    assert "+2 failed" in page

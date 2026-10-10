@@ -145,3 +145,30 @@ def test_compare_refuses_rows_trained_for_different_lengths(tmp_path):
 
     with pytest.raises(ValueError, match="epochs"):
         compare_rows(tmp_path, "a-mlp-spc", "a-mlp-epc", metric="accuracy")
+
+
+def _drop_metric(out_dir, row_id, trial, name):
+    path = out_dir / row_id / f"trial{trial}.json"
+    data = json.loads(path.read_text())
+    del data["metrics"][name]
+    path.write_text(json.dumps(data))
+
+
+def test_a_row_mixing_old_and_new_trials_summarizes_what_they_share(tmp_path):
+    # Trials written before a metric existed (say forward_accuracy) lack it;
+    # the summary keeps the metrics every trial has instead of crashing.
+    write_trials(tmp_path, "mnist-mlp-spc", [0.90, 0.91, 0.92])
+    _drop_metric(tmp_path, "mnist-mlp-spc", 1, "energy")
+
+    s = summarize_row(tmp_path, "mnist-mlp-spc")
+
+    assert "accuracy" in s.metrics and "energy" not in s.metrics
+
+
+def test_comparing_on_a_metric_some_trials_lack_says_so(tmp_path):
+    write_trials(tmp_path, "a-mlp-spc", [0.90, 0.91, 0.92])
+    write_trials(tmp_path, "a-mlp-epc", [0.90, 0.91, 0.93], algorithm="epc")
+    _drop_metric(tmp_path, "a-mlp-epc", 0, "energy")
+
+    with pytest.raises(ValueError, match="energy"):
+        compare_rows(tmp_path, "a-mlp-spc", "a-mlp-epc", metric="energy")
