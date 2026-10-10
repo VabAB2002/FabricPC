@@ -13,6 +13,14 @@ For a plain chain this is the sponsor's closed form with E = depth. For
 any other graph it is the same sum taken edge by edge, which is why we
 count edges instead of layers.
 
+Some nodes keep their own named weights instead of one per incoming edge
+(a transformer's W_q, W_k, W_v, W_o, W_ff1, W_ff2, W_out). Each such matrix
+is counted as one more weighted edge, applied at every position of the
+node. Attention also multiplies Q by K^T and the attention weights by V,
+two matmuls with no weight at all: their FLOPs are added to each pass, but
+they are not counted as edges. An embedding table is a lookup, not a
+matmul, and 1-D weights (a layer norm's gain) are not matmuls either.
+
 FLOPs use the usual 2 * (multiply-adds) rule for one pass over an edge.
 """
 
@@ -36,16 +44,40 @@ def _flops_one_pass_for_edge(weight, target_shape, batch_size: int) -> int:
     """2 * batch * multiply-adds for one pass over one weighted edge.
 
     Linear weights are (fan_in, fan_out). Conv kernels are
-    (*kernel, C_in, C_out) and the multiply-adds repeat at every output
-    position, so we multiply by the output's spatial size.
+    (*kernel, C_in, C_out). Either way the multiply-adds repeat at every
+    output position, so we multiply by everything in the output's shape
+    but its last dim: the spatial size of a conv map, the sequence length
+    of a transformer node, and 1 for a plain vector.
     """
     weight_size = math.prod(weight.shape)
-    if weight.ndim == 2:
-        spatial = 1
-    else:
-        # target_shape is (spatial..., C_out); everything but the last dim.
-        spatial = math.prod(target_shape[:-1])
-    return 2 * batch_size * spatial * weight_size
+    positions = math.prod(target_shape[:-1])
+    return 2 * batch_size * positions * weight_size
+
+
+# Weights a node keeps under its own name that are not matmuls.
+_NOT_MATMULS = ("embeddings",)
+
+
+def _own_matmuls(node_params, edge_keys):
+    """A node's named weight matrices that are not tied to an edge."""
+    return [
+        w
+        for name, w in node_params.weights.items()
+        if name not in edge_keys and name not in _NOT_MATMULS and w.ndim >= 2
+    ]
+
+
+def _attention_flops(node, node_params, batch_size: int) -> int:
+    """Q K^T and A V of a self-attention node: 2 * (2 * B * L * L * D).
+
+    Splitting D over heads does not change the total.
+    """
+    weights = node_params.weights
+    if "W_q" not in weights or "W_k" not in weights:
+        return 0
+    seq_len = node.node_info.shape[0]
+    width = weights["W_q"].shape[-1]
+    return 2 * (2 * batch_size * seq_len * seq_len * width)
 
 
 def _matmul_output_shape(node, input_shapes=None):
@@ -63,6 +95,19 @@ def _matmul_output_shape(node, input_shapes=None):
     if unpooled is None:
         return shape
     return unpooled(shape, node.node_info.node_config, input_shapes)
+
+
+def count_edge_weights(params, structure) -> int:
+    """Weighted edges by the first rule only: weights keyed by an edge.
+
+    Results written before a node's own weights were counted saved this
+    number, so ``refresh`` uses it to tell "the graph changed" apart from
+    "the counting changed".
+    """
+    return sum(
+        edge_key in params.nodes[edge.target].weights
+        for edge_key, edge in structure.edges.items()
+    )
 
 
 def count_compute(
@@ -90,6 +135,16 @@ def count_compute(
             structure.nodes[edge.target], {edge_key: source_shape}
         )
         flops_per_pass += _flops_one_pass_for_edge(weight, target_shape, batch_size)
+
+    edge_keys = set(structure.edges)
+    for name, node in structure.nodes.items():
+        node_params = params.nodes[name]
+        for weight in _own_matmuls(node_params, edge_keys):
+            weighted_edges += 1
+            flops_per_pass += _flops_one_pass_for_edge(
+                weight, node.node_info.shape, batch_size
+            )
+        flops_per_pass += _attention_flops(node, node_params, batch_size)
 
     backprop_factor = 3
     if algorithm == "backprop":

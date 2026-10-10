@@ -121,3 +121,28 @@ def test_fused_pool_on_an_odd_map_counts_the_real_conv_size(rng_key):
                 weight, real_conv_shape[edge.target], 4
             )
     assert c.flops_per_pass == expected
+
+
+def test_a_transformer_counts_its_own_weights_and_attention(rng_key):
+    # Transformer nodes name their weights (W_q, W_ff1, ...) instead of
+    # keying them by edge, and attention has two matmuls with no weight at
+    # all. Worked by hand for the char row: batch B=16, L=128 positions,
+    # width D=64, MLP width F=256, vocab V=65, two layers.
+    from fabricpc.bench.registry import ROWS
+
+    row = ROWS["tinyshakespeare-transformer-spc"]
+    params, structure = row.model_factory(rng_key)
+    B, L, D, F, V = 16, 128, 64, 256, 65
+    per_layer = (
+        4 * 2 * B * L * D * D  # W_q, W_k, W_v, W_o at every position
+        + 2 * B * L * D * F  # W_ff1
+        + 2 * B * L * F * D  # W_ff2
+        + 2 * (2 * B * L * L * D)  # Q K^T and A V
+    )
+    expected = 2 * per_layer + 2 * B * L * D * V  # plus W_out
+
+    c = count_compute(params, structure, batch_size=B, algorithm="spc")
+
+    assert c.flops_per_pass == expected
+    assert c.weighted_edges == 2 * 6 + 1  # six weight matrices a layer, W_out
+    assert c.pc_to_backprop_ratio == pytest.approx((2 * c.infer_steps + 1) / 3)

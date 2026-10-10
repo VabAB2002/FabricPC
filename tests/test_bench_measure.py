@@ -56,7 +56,9 @@ def test_step_memory_comes_from_the_compiled_training_step(rng_key):
     for algo, trainer in (("backprop", "backprop"), ("spc", "pc")):
         row = ROWS[f"mnist-mlp-{algo}"]
         params, structure = row.model_factory(rng_key)
-        loader, _ = fake_mnist_loaders(rng_key)
+        # The row's own batch size: PC's extra buffers grow with the batch,
+        # and with a tiny batch the weights hide them.
+        loader, _ = fake_mnist_loaders(rng_key, batch_size=row.batch_size)
         mem = measure.step_memory(
             params,
             structure,
@@ -82,7 +84,7 @@ def test_step_memory_is_none_when_the_step_cannot_be_analysed(monkeypatch, rng_k
     from fabricpc.bench.registry import ROWS
     from tests.test_bench_runner import fake_mnist_loaders
 
-    monkeypatch.setattr(measure, "make_train_step", lambda *a, **k: (lambda *x: x))
+    monkeypatch.setattr(measure, "training_step", lambda *a, **k: (lambda *x: x))
     row = ROWS["mnist-mlp-backprop"]
     params, structure = row.model_factory(rng_key)
     loader, _ = fake_mnist_loaders(rng_key)
@@ -105,9 +107,9 @@ def test_timing_compiles_the_step_once_and_reports_its_memory(monkeypatch, rng_k
     from tests.test_bench_runner import fake_mnist_loaders
 
     lowered = []
-    real = measure.make_train_step
+    real = measure.training_step
 
-    def counting_make_train_step(*args, **kwargs):
+    def counting_training_step(*args, **kwargs):
         step = real(*args, **kwargs)
 
         class Counted:
@@ -120,7 +122,7 @@ def test_timing_compiles_the_step_once_and_reports_its_memory(monkeypatch, rng_k
 
         return Counted()
 
-    monkeypatch.setattr(measure, "make_train_step", counting_make_train_step)
+    monkeypatch.setattr(measure, "training_step", counting_training_step)
     row = ROWS["mnist-mlp-spc"]
     params, structure = row.model_factory(rng_key)
     loader, _ = fake_mnist_loaders(rng_key)

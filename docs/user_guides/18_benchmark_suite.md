@@ -48,12 +48,12 @@ Every file, compare files included, carries `schema_version` (now 3), and `valid
 | Field | Meaning |
 |---|---|
 | `metrics` | the task metrics from `evaluate` (accuracy, perplexity, cross-entropy, energy), plus the same metrics from one plain forward pass as `forward_<name>` (see below) |
-| `step_time_ms` | median of the timed steps, after compile and warmup, each ending in `block_until_ready` |
+| `step_time_ms` | median of the timed steps, after compile and warmup, each ending in `block_until_ready`. The step timed is the one `train()` runs (inputs donated, settled state dropped inside the step). Runs made before 2026-10-10 timed a step that also returned the settled state: their sPC step times are about twice too slow (MNIST MLP on CPU: 11.8 ms vs 5.9 ms), ePC and backprop about right. `refresh` cannot fix a measured time; rerun those rows |
 | `compile_time_s` | compiling the training step, timed on its own |
 | `train_time_s` | wall-clock for the full training run |
-| `step_memory` | the compiled training step's argument, output and temporary bytes, from XLA's memory analysis |
+| `step_memory` | the compiled training step's argument, output and temporary bytes, from XLA's memory analysis (the same step as `step_time_ms`; runs before 2026-10-10 report about twice the real total) |
 | `peak_memory_bytes` | the process-wide peak; on GPU this includes compile scratch space and can be the same for every algorithm, so prefer `step_memory` |
-| `compute` | weighted edges, matmuls and FLOPs per weight update (PC `2·E·T + E`, backprop `3·E`, summed edge by edge) |
+| `compute` | weighted edges, matmuls and FLOPs per weight update (PC `2·E·T + E`, backprop `3·E`, summed edge by edge). A transformer node's own weight matrices (`W_q` … `W_out`) count as edges applied at every position, and attention's `QKᵀ` and `AV` add their FLOPs. Before 2026-10-10 the transformer rows counted 0; `refresh` corrects old files |
 | `achieved_tflops` | FLOPs per update divided by the measured step time |
 | `epc_regime` | ePC rows only: the regime label at the start and end of training (see below) |
 | `checkpoint` | where the trained weights were saved, with `--zoo` |

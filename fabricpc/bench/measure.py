@@ -7,6 +7,10 @@ Two rules keep the numbers honest:
 * JAX hands work to the device and returns right away, so every timed step
   ends with ``block_until_ready``. Without that the stopwatch measures
   nothing.
+* The step timed is the one ``train()`` runs: it donates its inputs and
+  drops the settled GraphState inside the step. ``make_train_step`` returns
+  that state, which keeps work alive training never does (sPC's step came
+  out about twice as slow that way).
 """
 
 import itertools
@@ -20,8 +24,7 @@ import jax
 from fabricpc.core.epsilon_spectrum import make_epsilon_spectrum
 from fabricpc.core.inference_epc import EPCInference
 from fabricpc.graph_initialization.state_initializer import initialize_graph_state
-from fabricpc.training import make_train_step
-from fabricpc.training.trainer import build_clamps, convert_batch
+from fabricpc.training.trainer import _make_step, build_clamps, convert_batch
 
 
 @dataclass(frozen=True)
@@ -30,6 +33,20 @@ class Timing:
     step_time_ms: float  # median over the timed steps
     timed_steps: int
     step_memory: Optional[Dict[str, int]] = None  # see step_memory()
+
+
+def training_step(structure, optimizer, *, algorithm: str):
+    """The jitted step ``train()`` runs when no iter_callback reads the state.
+
+    It donates params and optimizer state, so callers pass copies.
+    """
+    return _make_step(
+        structure, optimizer, algorithm=algorithm, with_state=False, donate=True
+    )
+
+
+def _copy(tree):
+    return jax.tree_util.tree_map(jax.numpy.copy, tree)
 
 
 def _compile(step, params, opt_state, batch, key):
@@ -66,7 +83,9 @@ def time_steps(
     are reused in a cycle if the loader is shorter. The compiled step's
     memory needs come back in ``Timing.step_memory``.
     """
-    step = make_train_step(structure, optimizer, algorithm=algorithm)
+    step = training_step(structure, optimizer, algorithm=algorithm)
+    # The step donates these, so work on copies and leave the caller's alone.
+    params = _copy(params)
     opt_state = optimizer.init(params)
     needed = 1 + warmup_steps + timed_steps
     batches = [convert_batch(b) for b in itertools.islice(loader, needed)]
@@ -83,7 +102,7 @@ def time_steps(
 
     # Warmup, including the first call: run, do not time.
     for i in range(1 + warmup_steps):
-        params, opt_state, _, _ = run(params, opt_state, batch_at(i), keys[i])
+        params, opt_state, _ = run(params, opt_state, batch_at(i), keys[i])
     jax.block_until_ready(params)
 
     # Timed steps, each one synced before the clock stops.
@@ -91,9 +110,7 @@ def time_steps(
     for i in range(timed_steps):
         j = 1 + warmup_steps + i
         t0 = time.perf_counter()
-        params, opt_state, _, _ = run(
-            params, opt_state, batch_at(j), keys[j % len(keys)]
-        )
+        params, opt_state, _ = run(params, opt_state, batch_at(j), keys[j % len(keys)])
         jax.block_until_ready(params)
         samples.append(time.perf_counter() - t0)
 
@@ -177,8 +194,9 @@ def step_memory(
     function compiles one on its own. Returns None when the step cannot be
     analysed (for example a step that is not jitted).
     """
-    step = make_train_step(structure, optimizer, algorithm=algorithm)
+    step = training_step(structure, optimizer, algorithm=algorithm)
     batch = convert_batch(next(iter(loader)))
+    params = _copy(params)
     _, compiled, _ = _compile(step, params, optimizer.init(params), batch, rng_key)
     return _memory_of(compiled)
 

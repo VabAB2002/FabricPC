@@ -38,3 +38,67 @@ def test_timing_reads_only_the_batches_it_needs(rng_key):
     assert counting.taken == 4  # 1 compile + 1 warmup + 2 timed, not all 20
     assert timing.timed_steps == 2
     assert timing.step_time_ms > 0
+
+
+def _memory_of_training_step(row, params, structure, optimizer, batch, key):
+    """What XLA says the step train() really runs needs, for comparison."""
+    from fabricpc.training.trainer import _make_step
+
+    step = _make_step(
+        structure, optimizer, algorithm="pc", with_state=False, donate=True
+    )
+    opt_state = optimizer.init(params)
+    return measure._memory_of(step.lower(params, opt_state, batch, key).compile())
+
+
+def test_timing_measures_the_step_training_really_runs(rng_key):
+    # train() drops the settled GraphState inside its step. A step that
+    # returns it keeps work alive that training never does, so timing and
+    # memory have to come from the same program training runs.
+    from fabricpc.training.trainer import convert_batch
+
+    row = ROWS["mnist-mlp-spc"]
+    train, _ = fake_mnist_loaders(rng_key, n_batches=4)
+    params, structure = row.model_factory(rng_key)
+    optimizer = row.optimizer_factory(4)
+    batch = convert_batch(next(iter(train)))
+
+    timing = measure.time_steps(
+        params,
+        structure,
+        optimizer,
+        train,
+        rng_key,
+        algorithm="pc",
+        warmup_steps=1,
+        timed_steps=1,
+    )
+
+    expected = _memory_of_training_step(
+        row, params, structure, optimizer, batch, rng_key
+    )
+    assert timing.step_memory == expected
+
+
+def test_timing_leaves_the_callers_params_usable(rng_key):
+    # The training step donates its inputs, so timing must work on a copy.
+    import jax
+
+    row = ROWS["mnist-mlp-spc"]
+    train, _ = fake_mnist_loaders(rng_key, n_batches=4)
+    params, structure = row.model_factory(rng_key)
+    before = jax.tree_util.tree_map(lambda x: x.copy(), params)
+
+    measure.time_steps(
+        params,
+        structure,
+        row.optimizer_factory(4),
+        train,
+        rng_key,
+        algorithm="pc",
+        warmup_steps=1,
+        timed_steps=1,
+    )
+
+    same = jax.tree_util.tree_map(lambda a, b: bool((a == b).all()), params, before)
+    assert all(jax.tree_util.tree_leaves(same))

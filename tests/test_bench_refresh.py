@@ -453,6 +453,21 @@ def test_a_row_whose_widths_changed_is_refused(tmp_path):
         refresh_results(src, tmp_path / "new")
 
 
+def test_an_old_transformer_run_that_counted_no_flops_is_recounted(tmp_path):
+    # Before transformer nodes' own weights were counted, these rows saved
+    # 0 weighted edges and 0 FLOPs. The graph did not change, only the
+    # counting did, so refresh must recount them instead of refusing.
+    row = ROWS["tinyshakespeare-transformer-spc"]
+    src = tmp_path / "old"
+    _write_old_row(src, row, weighted_edges=0, flops_per_pass=0, zoo=False)
+    out = tmp_path / "new"
+    refresh_results(src, out)
+    compute = _trial(out, row.id)["compute"]
+    assert compute["weighted_edges"] == 13
+    assert compute["flops_per_pass"] > 0
+    assert validate(out) == []
+
+
 def test_a_pairwise_compare_is_rebuilt(tmp_path):
     # Like cifar10-vgg5-plain-layout: two rows of a family and a pairwise file.
     from fabricpc.bench.summary import compare_rows

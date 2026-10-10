@@ -41,7 +41,7 @@ import jax
 import fabricpc
 from fabricpc.bench.band import attach_band
 from fabricpc.bench.compare import compare_family
-from fabricpc.bench.compute import count_compute
+from fabricpc.bench.compute import count_compute, count_edge_weights
 from fabricpc.bench.manifest import SCHEMA_VERSION, _git_sha
 from fabricpc.bench.registry import COMPARISONS, ROWS
 from fabricpc.bench.summary import MIN_TRIALS, compare_rows, summarize_row
@@ -122,7 +122,14 @@ class _Recounter:
             algorithm=algorithm,
             infer_steps=int(saved["infer_steps"]),
         )
-        if compute.weighted_edges != saved.get("weighted_edges"):
+        saved_edges = saved.get("weighted_edges")
+        # Older runs counted only edge-keyed weights (a transformer saved 0);
+        # matching that count means the graph is the same and only the
+        # counting changed.
+        if saved_edges not in (
+            compute.weighted_edges,
+            count_edge_weights(params, structure),
+        ):
             raise ValueError(
                 f"{row_id}: the graph today has {compute.weighted_edges} weighted "
                 f"edges but the saved run had {saved.get('weighted_edges')}; the "
