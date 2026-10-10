@@ -33,7 +33,7 @@ MIN_TRIALS = 2
 
 
 def arm_for_row(
-        row: BenchmarkRow, *, steps_per_epoch: int, num_epochs: Optional[float] = None
+    row: BenchmarkRow, *, steps_per_epoch: int, num_epochs: Optional[float] = None
 ) -> ExperimentArm:
     """The row as an arm of PlannedMultiContrastExperiment.
 
@@ -87,11 +87,11 @@ def _pair_on_shared_seeds(results_dir, rows: Sequence[str]):
 
 
 def planned_results(
-        results_dir,
-        *,
-        rows: Sequence[str],
-        contrasts: Sequence[Tuple[str, str]],
-        metric: str,
+    results_dir,
+    *,
+    rows: Sequence[str],
+    contrasts: Sequence[Tuple[str, str]],
+    metric: str,
 ) -> PlannedMultiContrastResults:
     """Load finished trials into the framework's results object.
 

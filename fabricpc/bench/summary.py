@@ -61,8 +61,14 @@ class RowSummary:
     n_params: int = 0
     num_epochs: float = 0.0
     step_memory: Optional[Dict[str, int]] = None  # same for every trial of a row
-    peak_memory_bytes: Optional[Dict[str, float]] = None # measure peak device memory; None for no trial recorded
-    checkpoints: List[Dict[str, object]] = field(default_factory=list) # successful trial model saved for zoo
+    # Peak device memory across trials; None when no trial recorded it.
+    peak_memory_bytes: Optional[Dict[str, float]] = None
+    # The process-wide peak is mostly GPU compile scratch space and comes out
+    # about the same for every algorithm, so it is never a fair way to compare
+    # methods (step_memory is). None when there is no peak to compare.
+    peak_memory_comparable: Optional[bool] = None
+    # Where each successful trial's model was saved, for the model zoo.
+    checkpoints: List[Dict[str, object]] = field(default_factory=list)
     band: Optional[Dict[str, object]] = None  # filled in by fabricpc.bench.band
     schema_version: int = SCHEMA_VERSION
 
@@ -106,6 +112,7 @@ def summarize_row(results_dir, row_id: str) -> RowSummary:
         num_epochs=float(ok[0].get("num_epochs", 0.0)),
         step_memory=ok[0].get("step_memory"),
         peak_memory_bytes=_stats(peaks) if len(peaks) >= MIN_TRIALS else None,
+        peak_memory_comparable=False if len(peaks) >= MIN_TRIALS else None,
         checkpoints=checkpoints,
     )
     write_summary(results_dir, summary)

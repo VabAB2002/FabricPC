@@ -41,7 +41,7 @@ results/
   compare-cifar10-vgg5.json   paired contrasts for the family
 ```
 
-Every file carries `schema_version`. Each trial records:
+Every file, compare files included, carries `schema_version` (now 3), and `validate` flags any file that does not match the code reading it. `refresh` (below) brings an older folder up to date. Besides the means, `summary.json` lists each successful trial's `checkpoint` with its seed (for the model zoo) and the average `peak_memory_bytes`, which is marked `peak_memory_comparable: false` for the reason in the table below. Each trial records:
 
 | Field | Meaning |
 |---|---|
@@ -160,7 +160,7 @@ When a bug fix changes a number the suite works out rather than measures, `refre
 python -m fabricpc.bench refresh results/old-run --out results/old-run-refreshed
 ```
 
-It recounts `compute` and `achieved_tflops` with today's FLOP counter (keeping the run's own settling steps and its measured step time), makes cloud checkpoint paths relative to the new folder when the zoo is on disk (`--zoo DIR` if it is not next to the old results), and marks `peak_memory_bytes` with `peak_memory_comparable: false` when the run has no `step_memory`. Metrics and times are copied unchanged. Each trial and manifest gets a `refresh` list saying what changed and with which commit; the manifest's own `git_sha` stays the commit that trained. The old folder is never edited, and the new one is checked with `validate`. `--out` is required and must not already hold results for those rows. Every row is checked before anything is written: a row not in the registry, or whose parameter count or weighted-edge count no longer matches the run, stops the refresh. Every compare file in the old folder is rebuilt (family, pairwise, or on another metric); one that cannot be rebuilt is copied unchanged and listed in the new `NOTES.md`, which also carries the old notes under a line saying what was corrected. A band verdict that changes against today's reference is recorded in the manifest's refresh record.
+It recounts `compute` and `achieved_tflops` with today's FLOP counter (keeping the run's own settling steps and its measured step time), makes cloud checkpoint paths relative to the new folder when the zoo is on disk (`--zoo DIR` if it is not next to the old results), and marks `peak_memory_bytes` with `peak_memory_comparable: false` when the run has no `step_memory`. Metrics and times are copied unchanged. Each trial and manifest gets a `refresh` list saying what changed and with which commit; the manifest's own `git_sha` stays the commit that trained. The old folder is never edited, and the new one is checked with `validate`. `--out` is required and must not already hold results for those rows. Every row is checked before anything is written: a row not in the registry, or whose parameter count or weighted-edge count no longer matches the run, stops the refresh. Every compare file in the old folder is rebuilt (family, pairwise, or on another metric); one that cannot be rebuilt is copied unchanged and listed in the new `NOTES.md`, which also carries the old notes under a line saying what was corrected. A band verdict that changes against today's reference is recorded in the manifest's refresh record. Trials and manifests written by an older version of the suite are stamped with today's `schema_version`, and that change is recorded too; a compare file that is copied unchanged gets the stamp plus `copied_unchanged: true`, so `validate` passes and the file still says its numbers are old.
 
 ## Adding a row
 

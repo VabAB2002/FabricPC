@@ -22,7 +22,9 @@ from fabricpc.bench.registry import BenchmarkRow
 
 # Bump this when a field is added, renamed, or changes meaning.
 # 2: expected score, band verdict, peak memory
-SCHEMA_VERSION = 3 # 3: summary lists checkpoints and aggregates peak memory; compare files
+# 3: summary lists checkpoints and aggregates peak memory; compare files carry
+#    a version too
+SCHEMA_VERSION = 3
 
 
 def _package_version(name: str) -> Optional[str]:

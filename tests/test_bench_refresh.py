@@ -15,7 +15,7 @@ import jax
 import pytest
 
 from fabricpc.bench.compute import count_compute
-from fabricpc.bench.manifest import write_manifest
+from fabricpc.bench.manifest import SCHEMA_VERSION, write_manifest
 from fabricpc.bench.refresh import refresh_results
 from fabricpc.bench.registry import ROWS
 from fabricpc.bench.runner import TrialResult
@@ -95,6 +95,14 @@ def _write_old_row(
         summarize_row(root, row.id)
     write_trials_csv(root, row.id)
     return root / row.id
+
+
+def _make_version(root, version):
+    """Stamp every JSON file under ``root`` with an older schema version."""
+    for path in root.rglob("*.json"):
+        data = json.loads(path.read_text())
+        data["schema_version"] = version
+        path.write_text(json.dumps(data))
 
 
 def _fingerprint(folder):
@@ -291,6 +299,42 @@ def test_the_output_passes_validate_and_the_summary_is_rebuilt(old_mlp, tmp_path
     assert not (out / "zoo").exists()  # the zoo is referenced, not copied
 
 
+def test_an_older_version_folder_comes_out_at_the_current_version(tmp_path):
+    src = tmp_path / "old"
+    _write_old_row(src, MLP)
+    _make_version(src, SCHEMA_VERSION - 1)
+    out = tmp_path / "new"
+    refresh_results(src, out)
+    assert validate(out) == []
+    trial = _trial(out, MLP.id)
+    assert trial["schema_version"] == SCHEMA_VERSION
+    change = [
+        c for c in trial["refresh"][-1]["changes"] if c["field"] == "schema_version"
+    ]
+    assert change == [
+        {
+            "field": "schema_version",
+            "old": SCHEMA_VERSION - 1,
+            "new": SCHEMA_VERSION,
+            "why": change[0]["why"],
+        }
+    ]
+    manifest = json.loads((out / MLP.id / "manifest.json").read_text())
+    assert manifest["schema_version"] == SCHEMA_VERSION
+    assert "schema_version" in manifest["refresh"][-1]["changed_fields"]
+
+
+def test_an_older_version_compare_that_cannot_be_rebuilt_still_validates(tmp_path):
+    src = tmp_path / "old"
+    _write_old_row(src, MLP)
+    stale = {"row_a": "gone-row", "row_b": MLP.id, "metric": "accuracy", "n": 3}
+    (src / "compare-gone-row-vs-mnist-mlp-spc.json").write_text(json.dumps(stale))
+    _make_version(src, SCHEMA_VERSION - 1)
+    out = tmp_path / "new"
+    refresh_results(src, out)
+    assert validate(out) == []
+
+
 def test_a_single_row_folder_works_too(old_mlp, tmp_path):
     out = tmp_path / "new"
     refresh_results(old_mlp / MLP.id, out)
@@ -455,8 +499,12 @@ def test_a_compare_that_cannot_be_rebuilt_is_copied_and_noted(tmp_path):
     (src / "compare-gone-row-vs-mnist-mlp-spc.json").write_text(json.dumps(stale))
     out = tmp_path / "new"
     refresh_results(src, out)
-    copied = out / "compare-gone-row-vs-mnist-mlp-spc.json"
-    assert json.loads(copied.read_text()) == stale
+    copied = json.loads((out / "compare-gone-row-vs-mnist-mlp-spc.json").read_text())
+    # The numbers are the old ones; only the stamp and the flag are added.
+    assert {k: copied[k] for k in stale} == stale
+    assert copied["copied_unchanged"] is True
+    assert copied["schema_version"] == SCHEMA_VERSION
+    assert validate(out) == []
     notes = (out / "NOTES.md").read_text()
     assert "compare-gone-row-vs-mnist-mlp-spc.json" in notes
     assert "copied unchanged" in notes

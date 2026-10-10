@@ -153,7 +153,7 @@ def test_trials_csv_and_summary_carry_the_step_memory(tmp_path):
         _edit(
             row_dir / f"trial{i}.json",
             step_memory={"total_bytes": 1234, "temp_bytes": 1000},
-            )
+        )
     summarize_row(tmp_path, ROW.id)
     write_trials_csv(tmp_path, ROW.id)
 
@@ -224,6 +224,17 @@ def test_summary_lists_checkpoints_and_aggregates_peak_memory(tmp_path):
     assert summary["peak_memory_bytes"]["n"] == 2
 
 
+def test_summary_says_peak_memory_is_not_for_comparing_methods(tmp_path):
+    # The process-wide peak is mostly compile scratch space on a GPU, so it
+    # comes out about the same for every algorithm; step_memory is the one
+    # to compare.
+    row_dir = _write_run(tmp_path)
+    summarize_row(tmp_path, ROW.id)
+
+    summary = json.loads((row_dir / "summary.json").read_text())
+    assert summary["peak_memory_comparable"] is False
+
+
 def test_summary_leaves_peak_memory_empty_when_no_trial_measured_it(tmp_path):
     # CPU runs record peak_memory_bytes as null.
     row_dir = _write_run(tmp_path)
@@ -233,6 +244,7 @@ def test_summary_leaves_peak_memory_empty_when_no_trial_measured_it(tmp_path):
 
     summary = json.loads((row_dir / "summary.json").read_text())
     assert summary["peak_memory_bytes"] is None
+    assert summary["peak_memory_comparable"] is None  # nothing to compare
     assert summary["checkpoints"] == []
 
 

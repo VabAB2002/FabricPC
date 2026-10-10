@@ -31,7 +31,6 @@ output folder) before any file is written.
 
 import json
 import os
-import shutil
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -43,7 +42,7 @@ import fabricpc
 from fabricpc.bench.band import attach_band
 from fabricpc.bench.compare import compare_family
 from fabricpc.bench.compute import count_compute
-from fabricpc.bench.manifest import _git_sha
+from fabricpc.bench.manifest import SCHEMA_VERSION, _git_sha
 from fabricpc.bench.registry import COMPARISONS, ROWS
 from fabricpc.bench.summary import MIN_TRIALS, compare_rows, summarize_row
 from fabricpc.bench.writer import _trial_files, write_trials_csv
@@ -226,6 +225,17 @@ def refresh_trial(
             )
         notes.append(PEAK_MEMORY_NOTE)
 
+    if trial.get("schema_version") != SCHEMA_VERSION:
+        new["schema_version"] = SCHEMA_VERSION
+        changes.append(
+            _change(
+                "schema_version",
+                trial.get("schema_version"),
+                SCHEMA_VERSION,
+                "the refreshed copy is written in this code's format",
+            )
+        )
+
     record = {
         "refreshed_utc": _now(),
         "git_sha": sha,
@@ -344,6 +354,9 @@ def _write_row(plan, out_root, *, sha, command):
         fields = {c["field"] for t in new for c in t["refresh"][-1]["changes"]}
         if band_notes:
             fields.add("band")
+        if manifest.get("schema_version") != SCHEMA_VERSION:
+            manifest["schema_version"] = SCHEMA_VERSION
+            fields.add("schema_version")
         notes = sorted({n for t in new for n in t["refresh"][-1]["notes"]})
         record = {
             "refreshed_utc": _now(),
@@ -403,7 +416,12 @@ def _carry_over_compares_and_notes(src_root, out_root, done, sha) -> None:
     copied = []
     for path in sorted(src_root.glob("compare-*.json")):
         if not _rebuild_compare(path, out_root, done):
-            shutil.copyfile(path, out_root / path.name)
+            # Same numbers as before; the flag says so, and the stamp lets
+            # validate() read it in this code's format.
+            data = json.loads(path.read_text())
+            data["schema_version"] = SCHEMA_VERSION
+            data["copied_unchanged"] = True
+            (out_root / path.name).write_text(json.dumps(data, indent=2))
             copied.append(path.name)
 
     old_notes = src_root / "NOTES.md"

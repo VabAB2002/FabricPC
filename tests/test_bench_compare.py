@@ -29,7 +29,7 @@ def test_every_model_family_has_a_three_way_comparison():
 
 @pytest.mark.parametrize("algorithm", ["spc", "backprop"])
 def test_our_trial_trains_exactly_what_the_experiment_framework_trains(
-        tmp_path, rng_key, algorithm
+    tmp_path, rng_key, algorithm
 ):
     # Same seed, same data, same keys: the accuracy must match to the bit.
     row = ROWS[f"mnist-mlp-{algorithm}"]

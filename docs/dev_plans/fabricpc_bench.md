@@ -213,7 +213,7 @@ Demo results block, per CONTRIBUTING: the command that produced every number, th
 | Compute | `compute.py` | per-edge matmul and FLOP count; `ConvPoolNode` convs counted at their unpooled size |
 | Pass/fail band | `band.py` | `|mean − expected| ≤ max(floor, 2·SE)`; only full runs get a verdict; marked pending sponsor sign-off |
 | Comparisons | `compare.py` | finished trials loaded into `PlannedMultiContrastResults`; paired on the seeds all rows share; a test shows a trial here trains exactly what the framework would |
-| Output | `writer.py` | `trial<i>.json`, `trials.csv` (rewritten after every trial), `summary.json`, `manifest.json`, `compare-<family>.json`, all with `schema_version: 2`; `validate` checks a folder |
+| Output | `writer.py` | `trial<i>.json`, `trials.csv` (rewritten after every trial), `summary.json`, `manifest.json`, `compare-<family>.json`, all with `schema_version: 3` (3 added checkpoints and peak memory to the summary and a version to compare files); `validate` checks a folder |
 | Learning curve | `runner.py` | test metrics on a fixed slice of the test set after every epoch (`--curve-batches`) |
 | ePC regime | `measure.epc_regime` | `EPCInference.regime` at init and after training on ePC rows |
 | Resume, zoo | CLI | `--resume` skips finished trials; `--zoo` saves weights (Orbax), path recorded relative to the results folder |
