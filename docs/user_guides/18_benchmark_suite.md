@@ -168,12 +168,12 @@ On a shared GPU machine (a JupyterHub), `python -m fabricpc.bench queue <plan.js
 
 ```bash
 python -m fabricpc.bench doctor --out runs                                    # GPU visible? both CUDA plugins? datasets, disk, one step
-python -m fabricpc.bench queue plans/gpu_campaign.json --validate-plan       # unknown ids, and jobs that get no pass/fail verdict
-python -m fabricpc.bench queue plans/gpu_campaign.json --probe --out probes  # time every row on this machine, train nothing
-python -m fabricpc.bench queue plans/gpu_campaign.json --rehearse --out rehearsal  # every job for a step or two
+python -m fabricpc.bench queue fabricpc/bench/plans/gpu_campaign.json --validate-plan       # unknown ids, and jobs that get no pass/fail verdict
+python -m fabricpc.bench queue fabricpc/bench/plans/gpu_campaign.json --probe --out campaign  # time every row on this machine, train nothing
+python -m fabricpc.bench queue fabricpc/bench/plans/gpu_campaign.json --rehearse --out rehearsal  # every job for a step or two
 ```
 
-`--validate-plan` warns about jobs that run fewer than 3 seeds or a shortened epoch count, since those get no verdict. `--probe` on its own times every row and prints the estimate; it never starts the campaign. `--rehearse` runs every job with 2 seeds, a step or two of training (`--epochs 0.0001`), `--fast`, and 2 test batches (`--max-eval-batches 2`), so a missing dataset, a shape error or a zoo problem shows up on a laptop instead of on paid time. Its trials record `eval_batches_capped` and never get a verdict. See [Running on a GPU Server](19_running_on_a_gpu_server.md).
+`--validate-plan` warns about jobs that run fewer than 3 seeds or a shortened epoch count, since those get no verdict. `--probe` on its own times every row and prints the estimate; it never starts the campaign. `--rehearse` runs every job with 2 seeds, 3 real training steps whatever the dataset's size (`--max-train-steps 3`), and 2 test batches (`--max-eval-batches 2`), with the learning curve and the diagnostics on, so a missing dataset, a shape error, a diagnostics or curve bug or a zoo problem shows up on a laptop instead of on paid time. Its trials record `train_steps_capped` and `eval_batches_capped` and never get a verdict. See [Running on a GPU Server](19_running_on_a_gpu_server.md).
 
 ## Trend tracking
 

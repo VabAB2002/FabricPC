@@ -3,6 +3,7 @@
 import dataclasses
 import json
 
+import pytest
 
 from fabricpc.bench import registry
 from fabricpc.bench.__main__ import main as cli_main
@@ -663,3 +664,35 @@ def test_a_pc_trial_file_is_strict_json(tmp_path, monkeypatch, rng_key):
     text = (tmp_path / "tiny-mlp-spc" / "trial0.json").read_text()
     assert json.loads(text)["rate_control"] is not None
     assert "NaN" not in text
+
+
+def test_max_train_steps_trains_exactly_that_many_steps(tmp_path, monkeypatch, rng_key):
+    # A rehearsal must really train: a tiny --epochs rounds to 0 steps on
+    # any loader under 5,000 batches, so the cap is in steps instead.
+    from fabricpc.training import trainer
+
+    register_tiny_row(monkeypatch, rng_key)
+    steps = []
+    real_make = trainer._make_step
+
+    def counting(*args, **kwargs):
+        step = real_make(*args, **kwargs)
+
+        def wrapped(*a, **k):
+            steps.append(1)
+            return step(*a, **k)
+
+        return wrapped
+
+    monkeypatch.setattr(trainer, "_make_step", counting)
+    quick = ["--warmup", "1", "--timed", "1", "--fast", "--trials", "2"]
+
+    code = main(
+        ["tiny-mlp-spc", "--out", str(tmp_path), "--max-train-steps", "2", *quick]
+    )
+
+    assert code == 0
+    trial = json.loads((tmp_path / "tiny-mlp-spc" / "trial0.json").read_text())
+    assert trial["train_steps_capped"] == 2
+    assert trial["num_epochs"] == pytest.approx(2 / 3)  # the tiny loader has 3
+    assert len(steps) == 2 * 2  # 2 steps in each of the 2 trials

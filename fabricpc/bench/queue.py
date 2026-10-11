@@ -93,9 +93,16 @@ LIVE_PROBE = "live"  # what a bare --probe means
 # A rehearsal runs every job for a step or two on whatever machine is at
 # hand, to catch a missing dataset or a shape error before paid GPU time.
 REHEARSE_TRIALS = 2
-REHEARSE_EPOCHS = 1e-4  # one to a few training steps on every dataset here
+REHEARSE_STEPS = 3  # real training steps, whatever the dataset's size
 REHEARSE_EVAL_BATCHES = 2
-REHEARSE_ARGV = ["--fast", "--max-eval-batches", str(REHEARSE_EVAL_BATCHES)]
+# The learning curve and the diagnostics stay on, so their code is rehearsed
+# too; on 2 test batches they are cheap.
+REHEARSE_ARGV = [
+    "--max-train-steps",
+    str(REHEARSE_STEPS),
+    "--max-eval-batches",
+    str(REHEARSE_EVAL_BATCHES),
+]
 
 RunMain = Callable[[List[str]], int]
 
@@ -418,11 +425,9 @@ def plan_warnings(plan: Plan) -> List[str]:
 
 
 def rehearsal(plan: Plan) -> Plan:
-    """The same jobs, each cut to a couple of seeds and a step or two."""
-    jobs = tuple(
-        replace(job, trials=REHEARSE_TRIALS, epochs=REHEARSE_EPOCHS)
-        for job in plan.jobs
-    )
+    """The same jobs, each cut to a couple of seeds (and, through
+    REHEARSE_ARGV, a few training steps and test batches)."""
+    jobs = tuple(replace(job, trials=REHEARSE_TRIALS) for job in plan.jobs)
     return replace(plan, name=f"{plan.name} (rehearsal)", jobs=jobs)
 
 

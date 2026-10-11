@@ -172,6 +172,8 @@ class TrialResult:
     # Set when the test set was cut to this many batches (a rehearsal run):
     # the scores are then not test-set scores.
     eval_batches_capped: Optional[int] = None
+    # Set when training was cut to this many steps (a rehearsal run).
+    train_steps_capped: Optional[int] = None
     status: str = "ok"
     error: Optional[str] = None
     schema_version: int = SCHEMA_VERSION
@@ -191,6 +193,7 @@ def run_trial(
     curve_batches: int = DEFAULT_CURVE_BATCHES,
     diagnostics: bool = True,
     max_eval_batches: Optional[int] = None,
+    max_train_steps: Optional[int] = None,
 ) -> TrialResult:
     """Train the row's model once, measure it, and write ``trial<i>.json``.
 
@@ -198,7 +201,9 @@ def run_trial(
     caller shorten a run. Both default to what the row says. ``zoo_dir``
     saves the trained params there; None skips saving. ``max_eval_batches``
     scores only that many test batches, for rehearsing a run cheaply; the
-    trial records it in ``eval_batches_capped``.
+    trial records it in ``eval_batches_capped``. ``max_train_steps`` trains
+    at most that many steps whatever the dataset's size (the epoch count is
+    cut to match), recorded in ``train_steps_capped``.
     """
     seed = seed_for_trial(trial, seed_offset)
     out_path = Path(out_dir) / row.id / f"trial{trial}.json"
@@ -220,6 +225,8 @@ def run_trial(
         # Timing reads a few batches, so training gets fresh loaders after it
         # (the framework also builds fresh loaders for every arm).
         timing_loader, _ = loaders or row.loader_factory(seed)
+        if max_train_steps is not None:
+            epochs = min(epochs, max_train_steps / len(timing_loader))
         optimizer = row.optimizer_factory(total_train_steps(timing_loader, epochs))
         timing = time_steps(
             params,
@@ -380,6 +387,7 @@ def run_trial(
             achieved_tflops=achieved_tflops,
             checkpoint=checkpoint,
             eval_batches_capped=max_eval_batches,
+            train_steps_capped=max_train_steps,
         )
     except Exception:  # noqa: BLE001 - a failed trial must still be recorded
         result = TrialResult(
@@ -390,6 +398,7 @@ def run_trial(
             n_params=0,
             num_epochs=epochs,
             eval_batches_capped=max_eval_batches,
+            train_steps_capped=max_train_steps,
             status="failed",
             error=traceback.format_exc(),
         )

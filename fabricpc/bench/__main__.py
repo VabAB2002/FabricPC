@@ -139,6 +139,12 @@ def _parser() -> argparse.ArgumentParser:
         help="for 'trend': the folder that keeps one line per run per row",
     )
     p.add_argument(
+        "--max-train-steps",
+        type=int,
+        help="train at most this many steps, whatever the dataset's size (for "
+        "rehearsals; the trial records it)",
+    )
+    p.add_argument(
         "--max-eval-batches",
         type=int,
         help="score only this many test batches (for rehearsals; the trial "
@@ -210,6 +216,7 @@ def _run_row(
     curve_batches=None,
     diagnostics=True,
     max_eval_batches=None,
+    max_train_steps=None,
 ):
     """Run every trial of one row, then summarize. Returns (failed, summary)."""
     run_one = run_trial if in_process else run_trial_in_child
@@ -218,6 +225,8 @@ def _run_row(
         extra["diagnostics"] = False
     if max_eval_batches is not None:
         extra["max_eval_batches"] = max_eval_batches
+    if max_train_steps is not None:
+        extra["max_train_steps"] = max_train_steps
     _clear_old_results(out, row.id, keep_trials=range(n_trials) if resume else ())
     write_manifest(
         out,
@@ -508,6 +517,7 @@ def cmd_one_trial(row, args) -> int:
         zoo_dir=args.zoo,
         diagnostics=not args.no_diagnostics,
         max_eval_batches=args.max_eval_batches,
+        max_train_steps=args.max_train_steps,
         **({} if args.curve_batches is None else {"curve_batches": args.curve_batches}),
     )
     return 0 if result.status == "ok" else 1
@@ -586,6 +596,7 @@ def _run_one_row(row, args, command) -> int:
         curve_batches=args.curve_batches,
         diagnostics=not args.no_diagnostics,
         max_eval_batches=args.max_eval_batches,
+        max_train_steps=args.max_train_steps,
     )
     band_failed = summary is not None and summary.band["status"] == "fail"
     return 1 if failed or band_failed else 0

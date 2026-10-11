@@ -548,7 +548,9 @@ def test_rehearse_runs_every_job_tiny_and_capped(tmp_path):
     assert [c[0] for c in fake.calls] == ["mnist-mlp", "cifar10-vgg5-spc"]
     for argv in fake.calls:
         assert argv[argv.index("--trials") + 1] == "2"
-        assert float(argv[argv.index("--epochs") + 1]) <= 1e-3
-        assert "--fast" in argv
+        # A few real training steps, whatever the dataset's size, with the
+        # curve and diagnostics on so their code runs too.
+        assert int(argv[argv.index("--max-train-steps") + 1]) == 3
+        assert "--fast" not in argv
         assert int(argv[argv.index("--max-eval-batches") + 1]) <= 4
         assert "--zoo" in argv  # the zoo path is rehearsed too

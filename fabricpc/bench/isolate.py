@@ -38,6 +38,7 @@ def child_command(
     curve_batches: Optional[int] = None,
     diagnostics: bool = True,
     max_eval_batches: Optional[int] = None,
+    max_train_steps: Optional[int] = None,
 ) -> List[str]:
     """The command that runs one trial of one row in a new process."""
     cmd = [sys.executable, "-m", "fabricpc.bench", row_id]
@@ -53,6 +54,8 @@ def child_command(
         cmd += ["--no-diagnostics"]
     if max_eval_batches is not None:
         cmd += ["--max-eval-batches", str(max_eval_batches)]
+    if max_train_steps is not None:
+        cmd += ["--max-train-steps", str(max_train_steps)]
     return cmd
 
 
@@ -68,6 +71,7 @@ def run_trial_in_child(
     curve_batches: Optional[int] = None,
     diagnostics: bool = True,
     max_eval_batches: Optional[int] = None,
+    max_train_steps: Optional[int] = None,
 ) -> TrialResult:
     """Run one trial in a new process and return what it wrote."""
     path = Path(out_dir) / row.id / f"trial{trial}.json"
@@ -85,6 +89,7 @@ def run_trial_in_child(
         curve_batches=curve_batches,
         diagnostics=diagnostics,
         max_eval_batches=max_eval_batches,
+        max_train_steps=max_train_steps,
     )
     # stdout passes straight through so training progress still shows.
     proc = subprocess.run(cmd, stderr=subprocess.PIPE, text=True)
