@@ -66,14 +66,19 @@ def test_a_dataset_on_disk_is_ok(monkeypatch, tmp_path):
     assert checks["dataset mnist"].status == "ok"
 
 
-def test_an_unwritable_out_folder_fails(tmp_path):
-    out = tmp_path / "locked"
-    out.mkdir()
-    out.chmod(0o500)
-    try:
-        assert doctor.check_writable(out).status == "fail"
-    finally:
-        out.chmod(0o700)
+def test_an_unwritable_out_folder_fails(tmp_path, monkeypatch):
+    # Pretend the write is refused: a read-only folder does not stop root,
+    # and Colab and many containers run the tests as root.
+    def refuse(*a, **k):
+        raise PermissionError(13, "Permission denied")
+
+    monkeypatch.setattr(doctor.tempfile, "NamedTemporaryFile", refuse)
+    check = doctor.check_writable(tmp_path)
+    assert check.status == "fail"
+    assert "Permission denied" in check.detail
+
+
+def test_a_writable_out_folder_is_ok_even_before_it_exists(tmp_path):
     assert doctor.check_writable(tmp_path / "new").status == "ok"
 
 
