@@ -1,12 +1,14 @@
 """Is this machine ready to run the suite? One command, before the hours.
 
-    python -m fabricpc.bench doctor [--out DIR]
+    python -m fabricpc.bench doctor [--out DIR] [--expect-gpu]
 
 Checks, each ok, warn or fail:
 
 - Python is 3.11 or newer.
 - What JAX sees: a CPU-only machine is fine for smoke, regress and
-  rehearsals, not for the GPU campaign.
+  rehearsals, not for the GPU campaign. With --expect-gpu it is a fail,
+  because a broken CUDA install quietly falls back to the CPU. A JAX that
+  cannot start at all is a fail too.
 - Both the CUDA 12 and the CUDA 13 JAX plugins installed: the newer one
   shadows the older and JAX falls back or breaks (this happened on Colab).
 - XLA_FLAGS, printed so a run's settings are known.
@@ -46,13 +48,24 @@ def check_python() -> Check:
     return Check("Python", "ok" if ok else "fail", f"{v.major}.{v.minor}.{v.micro}")
 
 
-def check_devices() -> Check:
+def check_devices(expect_gpu: bool = False) -> Check:
+    """What JAX sees. With ``expect_gpu``, a CPU-only machine fails."""
     import jax
 
-    devices = jax.devices()
+    try:
+        devices = jax.devices()
+    except Exception as e:  # noqa: BLE001 - a broken install is a fail, not a crash
+        return Check("JAX devices", "fail", f"JAX could not start: {e}")
     kinds = sorted({f"{d.platform}:{d.device_kind}" for d in devices})
     text = f"{len(devices)} device(s): {', '.join(kinds)}"
     if all(d.platform == "cpu" for d in devices):
+        if expect_gpu:
+            return Check(
+                "JAX devices",
+                "fail",
+                text + "; --expect-gpu was given but JAX sees no GPU (a broken "
+                "CUDA install falls back to the CPU)",
+            )
         return Check(
             "JAX devices",
             "warn",
@@ -211,10 +224,10 @@ def check_one_step() -> Check:
     )
 
 
-def run_checks(out) -> List[Check]:
+def run_checks(out, expect_gpu: bool = False) -> List[Check]:
     return [
         check_python(),
-        check_devices(),
+        check_devices(expect_gpu),
         check_cuda_plugins(),
         check_xla_flags(),
         *check_datasets(),

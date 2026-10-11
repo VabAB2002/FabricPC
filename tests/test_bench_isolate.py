@@ -117,3 +117,24 @@ def test_child_command_passes_no_diagnostics_only_when_asked(tmp_path):
     )
     assert "--no-diagnostics" in off
     assert "--no-diagnostics" not in on
+
+
+def test_a_childs_error_output_is_kept_next_to_its_trial(tmp_path, monkeypatch):
+    # JAX's "falling back to CPU" warning and NaN warnings go to stderr; a
+    # successful child's stderr used to be thrown away.
+    row = ROWS["mnist-mlp-spc"]
+    path = tmp_path / row.id / "trial0.json"
+    trial = {"row_id": row.id, "trial": 0, "seed": 0, "algorithm": "spc", "n_params": 1}
+    _stub_child(
+        monkeypatch,
+        "import pathlib, sys;"
+        "print('a warning', file=sys.stderr);"
+        f"p = pathlib.Path({str(path)!r}); p.parent.mkdir(parents=True, exist_ok=True);"
+        f"p.write_text({json.dumps(json.dumps(trial))})",
+    )
+
+    result = isolate.run_trial_in_child(row, 0, tmp_path)
+
+    assert result.status == "ok"
+    log = tmp_path / row.id / "trial0.stderr.log"
+    assert "a warning" in log.read_text()

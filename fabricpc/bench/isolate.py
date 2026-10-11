@@ -7,7 +7,8 @@ take the other trials down with it.
 
 The child is just the normal command line with ``--trial i --in-process``:
 it trains one trial and writes ``trial<i>.json`` like any other run. The
-parent only has to start it and read that file back. If the child dies
+parent only has to start it and read that file back. The child's error
+output is always saved next to it as ``trial<i>.stderr.log``. If the child dies
 before writing it, the parent writes a failed result with the exit code
 and the end of the child's error output, so the run still records what
 happened.
@@ -93,6 +94,10 @@ def run_trial_in_child(
     )
     # stdout passes straight through so training progress still shows.
     proc = subprocess.run(cmd, stderr=subprocess.PIPE, text=True)
+    # Keep stderr even when the trial worked: JAX's "falling back to CPU"
+    # warning and NaN warnings only ever show up there.
+    path.parent.mkdir(parents=True, exist_ok=True)
+    (path.parent / f"trial{trial}.stderr.log").write_text(proc.stderr or "")
 
     if path.exists():
         return TrialResult(**json.loads(path.read_text()))
@@ -112,6 +117,5 @@ def run_trial_in_child(
             f"{(proc.stderr or '')[-_STDERR_KEPT:]}"
         ),
     )
-    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(dataclasses.asdict(result), indent=2))
     return result

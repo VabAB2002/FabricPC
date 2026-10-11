@@ -92,3 +92,30 @@ def test_the_command_exits_nonzero_only_on_a_fail(monkeypatch, tmp_path, capsys)
 
     monkeypatch.setattr(doctor.shutil, "disk_usage", lambda p: Usage(0, 0, 1 * GB))
     assert main(["doctor", "--out", str(tmp_path)]) == 1
+
+
+def test_expect_gpu_turns_a_cpu_only_machine_into_a_failure(monkeypatch):
+    # Before a GPU campaign, a CUDA install that fell back to the CPU must
+    # stop the run, not pass with a warning.
+    assert doctor.check_devices(expect_gpu=False).status in ("ok", "warn")
+    assert doctor.check_devices(expect_gpu=True).status == "fail"  # this is a CPU
+
+
+def test_a_jax_that_cannot_start_is_a_failed_check_not_a_crash(monkeypatch):
+    import jax
+
+    def broken():
+        raise RuntimeError("Unable to initialize backend 'cuda'")
+
+    monkeypatch.setattr(jax, "devices", broken)
+    check = doctor.check_devices()
+    assert check.status == "fail"
+    assert "cuda" in check.detail
+
+
+def test_the_command_takes_expect_gpu(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        doctor, "check_one_step", lambda: doctor.Check("step", "ok", "")
+    )
+    monkeypatch.setattr(doctor.shutil, "disk_usage", lambda p: Usage(0, 0, 90 * GB))
+    assert main(["doctor", "--out", str(tmp_path), "--expect-gpu"]) == 1

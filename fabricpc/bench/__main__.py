@@ -156,6 +156,11 @@ def _parser() -> argparse.ArgumentParser:
         help="run trials in this process instead of one process each",
     )
     p.add_argument(
+        "--expect-gpu",
+        action="store_true",
+        help="for 'doctor': fail unless JAX sees a GPU",
+    )
+    p.add_argument(
         "--price-per-hour",
         type=float,
         help="for 'probe': machine price in USD per hour (default 1.06, a T4)",
@@ -408,7 +413,7 @@ def cmd_doctor(args) -> int:
     """Check this machine is ready: devices, datasets, disk, one step."""
     from fabricpc.bench import doctor
 
-    checks = doctor.run_checks(args.out)
+    checks = doctor.run_checks(args.out, expect_gpu=args.expect_gpu)
     print(doctor.format_checks(checks))
     return 1 if any(c.status == "fail" for c in checks) else 0
 
