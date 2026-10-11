@@ -197,7 +197,25 @@ python -m fabricpc.bench trend add regress-results --history bench-history   # o
 python -m fabricpc.bench trend check --history bench-history                 # exit 1 on a regression
 ```
 
-`add` appends each row's per-seed step times and scores, with the git sha, date, device and XLA flags, to `<history>/<row>.jsonl` (the same run is never added twice). `check` groups a row's runs by device and XLA flags, so a new machine starts a new baseline instead of alerting, pools the previous 5 runs of the group as the baseline, and tests the newest run against it with Welch's unpaired t-test (`fabricpc.experiments.welch_ttest`). It alerts only when the difference is real (p < 0.05) and big enough to matter: step time 15% slower, or the row's metric half a point worse (lower is better for MSE, perplexity, cross-entropy and forgetting). A row's solver settings are fixed by its id; change them under a new id or start a new history.
+`add` appends each row's per-seed step times and scores, its failed seeds, the git sha, date, device, XLA flags, epochs, eval and train caps, and the machine's speed test from the manifest, to `<history>/<row>.jsonl` (the same run is never added twice). `check` judges each row's newest night:
+
+- **One number per night**, the median over its seeds. The seeds of one night share that night's machine, so they are not independent samples.
+- **Divided by the speed test.** Every manifest records `speed_test_ms`, a fixed 512 x 512 matrix product timed when the run started. A night when the whole runner was slow then does not look like a slower FabricPC. Nights without a speed test are left out of a speed-adjusted comparison.
+- **Like with like.** Nights are compared only within one device, XLA flag set, metric, epoch count and eval/train cap; a change of any of them starts a new baseline instead of alerting. A row's solver settings are fixed by its id; change them under a new id or start a new history.
+- **A frozen baseline.** The last 10 nights that raised no alarm (at least 5). Nights in an alarm never join it, so a real slowdown keeps alarming instead of becoming the new normal.
+- **Two nights in a row**, each worse than the baseline's median by a practical amount (step time 15%, accuracy-like scores half a point, MSE, perplexity, cross-entropy and forgetting 5%) and by more than twice the baseline's own wobble (1.4826 x its median absolute deviation).
+- **At once** on a failed seed or a NaN or infinite number.
+
+How well this works depends on how much of a runner's noise the speed test sees. Simulated with nine rows, two seeds a night and 1,000 weeks (`tests/test_bench_trend.py` checks the first line):
+
+| Speed test sees | Runner noise | Weeks with a false alarm | 20% / 25% / 30% slowdown caught within 3 nights |
+|---|---|---|---|
+| all of it | 5 to 15% | 0% | 85% / 99% / 100% |
+| half of it | 10% | 3% | 63% / 82% / 95% |
+| half of it | 15% | 19% | 50% / 65% / 80% |
+| none (no speed test) | 10% | 33% | 38% / 53% / 64% |
+
+Real nightly history will show which line applies. Issue #54 suggests a Welch test. In the same simulation without a speed test, a Welch test of two night medians against ten raised a false alarm in 53% of weeks at 10% noise and 90% at 15%, against 32% and 53% for the rule above, so the rule is used (`fabricpc.experiments.welch_ttest` is still there). The first version of `trend` pooled every seed as a separate sample and raised a false alarm in every simulated week at 10% noise.
 
 ## Fixing old results without retraining
 
