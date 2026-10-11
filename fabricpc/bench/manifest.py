@@ -18,6 +18,7 @@ from typing import List, Optional
 import jax
 
 import fabricpc
+from fabricpc.bench.measure import speed_test_ms
 from fabricpc.bench.registry import BenchmarkRow
 
 # Bump this when a field is added, renamed, or changes meaning.
@@ -27,7 +28,15 @@ from fabricpc.bench.registry import BenchmarkRow
 # 4: summary says how PC-like the runs were (epc_regime, backprop_alignment);
 #    trials and summary carry eval_batches_capped; manifest carries git_dirty;
 #    contrasts carry p_holm, significant_holm_05, effect_size, hedges_gz
-SCHEMA_VERSION = 4
+# 5: manifest carries speed_test_ms, the machine's speed when the run started
+SCHEMA_VERSION = 5
+
+
+def _speed_test() -> Optional[float]:
+    try:
+        return speed_test_ms()
+    except Exception:  # noqa: BLE001 - a missing number, not a failed run
+        return None
 
 
 def _git_dirty() -> Optional[bool]:
@@ -124,6 +133,8 @@ def build_manifest(row: BenchmarkRow, seeds: List[int], command: List[str]) -> d
         "default_backend": jax.default_backend(),
         # Until the library ships named flag profiles, record the raw flags.
         "xla_flags": os.environ.get("XLA_FLAGS", ""),
+        # A fixed matmul timed now; trend divides step times by it.
+        "speed_test_ms": _speed_test(),
         "argv0": sys.executable,
     }
 

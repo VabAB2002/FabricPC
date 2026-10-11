@@ -107,3 +107,22 @@ def test_git_dirty_is_none_when_git_cannot_say(monkeypatch):
 def test_the_manifest_records_the_dirty_flag(tmp_path):
     path = write_manifest(tmp_path, ROWS["mnist-mlp-spc"], seeds=[0], command=["x"])
     assert json.loads(path.read_text())["git_dirty"] in (True, False, None)
+
+
+def test_the_manifest_records_a_machine_speed_test(tmp_path):
+    # trend divides each night's step time by this, so a night when the
+    # whole runner was slow does not look like a slower FabricPC (#54).
+    path = write_manifest(tmp_path, ROWS["mnist-mlp-spc"], seeds=[0], command=[])
+    m = json.loads(path.read_text())
+    assert m["speed_test_ms"] > 0
+
+
+def test_a_speed_test_that_breaks_is_recorded_as_missing(tmp_path, monkeypatch):
+    from fabricpc.bench import manifest
+
+    def broken():
+        raise RuntimeError("no device")
+
+    monkeypatch.setattr(manifest, "speed_test_ms", broken)
+    path = write_manifest(tmp_path, ROWS["mnist-mlp-spc"], seeds=[0], command=[])
+    assert json.loads(path.read_text())["speed_test_ms"] is None

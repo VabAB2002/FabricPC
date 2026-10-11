@@ -167,3 +167,12 @@ def test_epc_regime_labels_how_pc_like_an_epc_run_is(rng_key):
     for algo in ("spc", "backprop"):
         params, structure = ROWS[f"mnist-mlp-{algo}"].model_factory(rng_key)
         assert measure.epc_regime(params, structure, batch, rng_key) is None
+
+
+def test_the_speed_test_times_a_fixed_matmul_on_this_machine():
+    from fabricpc.bench.measure import speed_test_ms
+
+    first, second = speed_test_ms(), speed_test_ms()
+    assert first > 0 and second > 0
+    # Same machine, same work: the two should be within a factor of a few.
+    assert 0.2 < first / second < 5

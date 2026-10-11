@@ -239,3 +239,26 @@ def epc_regime(params, structure, batch, rng_key, *, iters: int = 30):
         "lambda_min": float(r.lambda_min),
         "label": str(r),
     }
+
+
+SPEED_TEST_SIZE = 512
+SPEED_TEST_REPEATS = 20
+
+
+def speed_test_ms(size: int = SPEED_TEST_SIZE, repeats: int = SPEED_TEST_REPEATS):
+    """How fast this machine is right now: the median time of one fixed
+    ``size`` x ``size`` float32 matrix product on the default device, in ms.
+
+    It does not depend on FabricPC's code, so trend can divide a night's step
+    time by it: a night when the whole runner is slow then does not look like
+    a slower FabricPC.
+    """
+    x = jax.numpy.full((size, size), 0.5, dtype=jax.numpy.float32)
+    product = jax.jit(lambda m: m @ m)
+    product(x).block_until_ready()  # compile outside the timing
+    times = []
+    for _ in range(repeats):
+        start = time.perf_counter()
+        product(x).block_until_ready()
+        times.append(time.perf_counter() - start)
+    return statistics.median(times) * 1000.0
