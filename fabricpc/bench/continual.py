@@ -2,9 +2,18 @@
 
     fashionmnist-continual-{spc,epc,backprop}
 
-The protocol of Song et al. (2024, Nature Neuroscience, "Inferring neural
+Inspired by Song et al. (2024, Nature Neuroscience, "Inferring neural
 activity before plasticity as a foundation for learning beyond
-backpropagation"), where predictive coding forgot less than backprop:
+backpropagation"), where predictive coding forgot less than backprop. The
+network shape and the shared 5-unit output follow them; much else does not
+(our settings below vs theirs: AdamW 1e-3 with weight decay 0.1 against SGD
+with a learning rate tuned per rule; softmax with cross-entropy against a
+squared-error output; sPC settling 20 steps at 0.05 against about 64 to 128
+steps at 0.1, near equilibrium; a fixed even/odd split against random
+classes; 300 images per class and one pass per block against more data and
+4 passes per block; scoring after each block, with the PC rows' settled
+prediction, against a forward pass after every pass). Results here are not
+a replication of theirs:
 
 - Fashion-MNIST split in two tasks: A is the even classes (0, 2, 4, 6, 8),
   B the odd ones (1, 3, 5, 7, 9). Each task is a 5-way problem on one
@@ -24,8 +33,12 @@ after every block; the test batches are 1,000 images, so its 10 batches
 are the whole test set. ``accuracy_task_a`` and ``accuracy_task_b`` read the
 ``task`` mark on each test image. ``curve_summary`` turns the curve into:
 
+- ``mean_accuracy``: both tasks' accuracy averaged over every block, Song
+  et al.'s headline measure;
 - ``forgetting``: after each block from the second on, how much accuracy
   the task that was *not* trained lost during that block, averaged;
+- ``gain`` and ``forgetting_per_gain``: what the trained task gained per
+  block, and forgetting relative to it;
 - ``final_task_a`` / ``final_task_b``: each task's accuracy at the end.
 
 The row's own metric is ``accuracy`` on the whole test set at the end,
@@ -161,22 +174,40 @@ EVAL_METRICS = {
 
 
 def curve_summary(points: List[Dict[str, float]]) -> Dict[str, float]:
-    """Forgetting and each task's final accuracy, from the per-block curve.
+    """What the per-block curve says about learning one task after another.
 
-    Block k (from 1) trains task A when k is odd and B when it is even. The
-    task not trained in block k loses ``before - after`` of its accuracy;
-    ``forgetting`` averages that over blocks 2 to the last.
+    Block k (from 1) trains task A when k is odd and B when it is even.
+
+    - ``mean_accuracy``: the mean over every block of (A + B) / 2, Song et
+      al.'s headline measure (they report the mean test error over the run).
+    - ``forgetting``: from block 2 on, the accuracy the idle task lost during
+      the block, averaged.
+    - ``gain``: from block 2 on, the accuracy the trained task gained,
+      averaged. A method that learns more per block also has more to lose
+      on a shared output layer, so ``forgetting`` alone favours methods that
+      learn less; ``forgetting_per_gain`` divides one by the other.
+    - ``final_task_a`` / ``final_task_b``: each task at the end (the last
+      block trains B, so the final accuracy mostly measures B).
     """
     if not points:
         return {}
     acc = [(p["accuracy_task_a"], p["accuracy_task_b"]) for p in points]
-    drops = []
+    drops, gains = [], []
     for k in range(1, len(acc)):  # block k + 1, 0-based index k
         idle = 1 if k % 2 == 0 else 0  # A trained in even indices
+        trained = 1 - idle
         drops.append(acc[k - 1][idle] - acc[k][idle])
-    out = {"final_task_a": float(acc[-1][0]), "final_task_b": float(acc[-1][1])}
+        gains.append(acc[k][trained] - acc[k - 1][trained])
+    out = {
+        "mean_accuracy": float(np.mean([(a + b) / 2 for a, b in acc])),
+        "final_task_a": float(acc[-1][0]),
+        "final_task_b": float(acc[-1][1]),
+    }
     if drops:
         out["forgetting"] = float(np.mean(drops))
+        out["gain"] = float(np.mean(gains))
+        if out["gain"] > 0:
+            out["forgetting_per_gain"] = out["forgetting"] / out["gain"]
     return out
 
 

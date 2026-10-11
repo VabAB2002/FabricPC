@@ -82,6 +82,22 @@ def test_forgetting_by_hand():
     assert (s["final_task_a"], s["final_task_b"]) == (0.6, 0.65)
 
 
+def test_song_metric_and_gain_by_hand():
+    # Song et al.'s headline: mean accuracy over the whole run, here the mean
+    # of (A + B) / 2 after every block: (0.45 + 0.6 + 0.575 + 0.625) / 4.
+    # Gain: what the trained task got in each block from the second on:
+    # B 0.1 -> 0.7, A 0.5 -> 0.75, B 0.4 -> 0.65; mean 0.3667. Forgetting
+    # (0.25) per unit gained: 0.25 / 0.3667.
+    points = [
+        {"accuracy_task_a": a, "accuracy_task_b": b}
+        for a, b in [(0.8, 0.1), (0.5, 0.7), (0.75, 0.4), (0.6, 0.65)]
+    ]
+    s = continual.curve_summary(points)
+    assert s["mean_accuracy"] == pytest.approx(0.5625)
+    assert s["gain"] == pytest.approx(1.1 / 3)
+    assert s["forgetting_per_gain"] == pytest.approx(0.25 / (1.1 / 3))
+
+
 def test_the_family_is_registered_for_all_three_methods():
     for algo in ("spc", "epc", "backprop"):
         row = ROWS[f"fashionmnist-continual-{algo}"]

@@ -1,6 +1,6 @@
 """Graphs with loops: refine with sPC, or unroll? (issue #64)
 
-    python -m fabricpc.bench cycles --out DIR [--epochs 1] [--batches 5]
+    python -m fabricpc.bench cycles --out DIR [--epochs 1] [--max-eval-batches 5]
 
 A graph with a loop can be settled two ways. Unrolling
 (``graph(..., unroll=U)``) visits each loop U times inside one

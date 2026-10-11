@@ -32,7 +32,7 @@ import jax
 
 from fabricpc.bench.measure import epc_regime
 from fabricpc.bench.registry import ROWS
-from fabricpc.bench.runner import run_trial, seed_for_trial
+from fabricpc.bench.runner import _TIMING_STREAM, run_trial, seed_for_trial
 from fabricpc.core.inference_epc import EPCInference
 
 
@@ -52,15 +52,18 @@ def row_at(row, eta: float, steps: int):
 
 
 def second_batch_regime(row, trial: int):
-    """f-bar and f_max at init on the second training batch of the trial."""
+    """f-bar and f_max at init on the second training batch of the trial,
+    with the same key the trial's own regime reading uses, so only the batch
+    differs."""
     seed = seed_for_trial(trial)
-    graph_key = jax.random.split(jax.random.PRNGKey(seed), 3)[0]
+    master = jax.random.PRNGKey(seed)
+    graph_key = jax.random.split(master, 3)[0]
     params, structure = row.model_factory(graph_key)
     train, _ = row.loader_factory(seed)
     batches = iter(train)
     next(batches)
     regime = epc_regime(
-        params, structure, next(batches), jax.random.fold_in(graph_key, 7)
+        params, structure, next(batches), jax.random.fold_in(master, _TIMING_STREAM)
     )
     return regime["f_weighted"], regime["f_max"]
 
@@ -99,6 +102,8 @@ def study(row_id, etas, seeds, epochs, steps, out):
                     "f_max_init_batch2": fmax2,
                     "f_bar_final": final["f_weighted"],
                     "f_max_final": final["f_max"],
+                    "eta_lambda_max_init": init["eta_lambda_max"],
+                    "eta_lambda_max_final": final["eta_lambda_max"],
                     "band_init": init["band"],
                     "unstable_final": final["unstable"],
                 }
@@ -109,6 +114,8 @@ def study(row_id, etas, seeds, epochs, steps, out):
                 f"f_max {init['f_max']:.3f}/{fmax2:.3f}"
             )
     out.mkdir(parents=True, exist_ok=True)
+    if not rows:
+        raise SystemExit("every trial failed; nothing to summarize")
     with (out / "study.csv").open("w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=list(rows[0]))
         writer.writeheader()
@@ -120,24 +127,29 @@ def study(row_id, etas, seeds, epochs, steps, out):
 
 
 def summary(rows) -> str:
-    """Means over seeds for each rate, as a markdown table."""
+    """Per rate, over seeds: medians (f above 1 is overshoot and grows without
+    bound once eta lambda_max passes 2, so a mean of it says nothing), each
+    seed's final eta lambda_max, and how many seeds ended unstable."""
     lines = [
-        "| eta | n | accuracy | f_bar init (batch 1 / 2) | f_max init (batch 1 / 2) "
-        "| f_bar end | f_max end |",
-        "|---|---|---|---|---|---|---|",
+        "| eta | n | accuracy (median) | eta lambda_max init | eta lambda_max end "
+        "(per seed) | unstable at end | f_bar init (batch 1 / 2) | f_max init "
+        "(batch 1 / 2) | f_bar end | f_max end |",
+        "|---|---|---|---|---|---|---|---|---|---|",
     ]
     for eta in sorted({r["eta"] for r in rows}):
-        rs = [r for r in rows if r["eta"] == eta]
+        rs = sorted((r for r in rows if r["eta"] == eta), key=lambda r: r["seed"])
 
-        def m(key):
-            return statistics.fmean(r[key] for r in rs)
+        def med(key):
+            return statistics.median(r[key] for r in rs)
 
-        sd = statistics.stdev(r["accuracy"] for r in rs) if len(rs) > 1 else 0.0
+        ends = ", ".join(f"{r['eta_lambda_max_final']:.3g}" for r in rs)
         lines.append(
-            f"| {eta:g} | {len(rs)} | {m('accuracy'):.4f} ± {sd:.4f} | "
-            f"{m('f_bar_init'):.3f} / {m('f_bar_init_batch2'):.3f} | "
-            f"{m('f_max_init'):.3f} / {m('f_max_init_batch2'):.3f} | "
-            f"{m('f_bar_final'):.3f} | {m('f_max_final'):.3f} |"
+            f"| {eta:g} | {len(rs)} | {med('accuracy'):.4f} | "
+            f"{med('eta_lambda_max_init'):.3g} | {ends} | "
+            f"{sum(bool(r['unstable_final']) for r in rs)} of {len(rs)} | "
+            f"{med('f_bar_init'):.3f} / {med('f_bar_init_batch2'):.3f} | "
+            f"{med('f_max_init'):.3f} / {med('f_max_init_batch2'):.3f} | "
+            f"{med('f_bar_final'):.3g} | {med('f_max_final'):.3g} |"
         )
     return "\n".join(lines) + "\n"
 
