@@ -15,7 +15,12 @@ import jax
 from fabricpc.bench.compute import count_compute
 from fabricpc.bench.manifest import SCHEMA_VERSION
 from fabricpc.bench.diagnostics import diagnose
-from fabricpc.bench.measure import epc_regime, memory_snapshot, time_steps
+from fabricpc.bench.measure import (
+    TIMING_VERSION,
+    epc_regime,
+    memory_snapshot,
+    time_steps,
+)
 from fabricpc.bench.registry import BenchmarkRow
 from fabricpc.bench.zoo import save_params
 from fabricpc.training import InferenceRateController, evaluate, train
@@ -174,6 +179,9 @@ class TrialResult:
     eval_batches_capped: Optional[int] = None
     # Set when training was cut to this many steps (a rehearsal run).
     train_steps_capped: Optional[int] = None
+    # How step_time_ms was measured (measure.TIMING_VERSION); None in files
+    # written before it was recorded.
+    timing_version: Optional[int] = None
     status: str = "ok"
     error: Optional[str] = None
     schema_version: int = SCHEMA_VERSION
@@ -388,6 +396,7 @@ def run_trial(
             checkpoint=checkpoint,
             eval_batches_capped=max_eval_batches,
             train_steps_capped=max_train_steps,
+            timing_version=TIMING_VERSION,
         )
     except Exception:  # noqa: BLE001 - a failed trial must still be recorded
         result = TrialResult(

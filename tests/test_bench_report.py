@@ -8,6 +8,8 @@ the report page says about it.
 
 import json
 
+import pytest
+
 from fabricpc.bench.__main__ import main
 from fabricpc.bench.report import build_report, render
 
@@ -369,7 +371,7 @@ def _with_cost(row_dir, *, ratio, tflops, mem_bytes, compile_s):
     (row_dir / "summary.json").write_text(json.dumps(summary))
 
 
-def _write_trial(row_dir, i, *, algorithm, curve=None, schema=4):
+def _write_trial(row_dir, i, *, algorithm, curve=None, schema=4, timing=None):
     data = {
         "row_id": row_dir.name,
         "trial": i,
@@ -378,8 +380,11 @@ def _write_trial(row_dir, i, *, algorithm, curve=None, schema=4):
         "status": "ok",
         "metrics": {"accuracy": 0.8},
         "curve": curve,
-        "schema_version": schema,
     }
+    if schema is not None:
+        data["schema_version"] = schema
+    if timing is not None:
+        data["timing_version"] = timing
     (row_dir / f"trial{i}.json").write_text(json.dumps(data))
 
 
@@ -484,3 +489,24 @@ def test_holm_is_filled_in_per_compare_file_and_never_overwritten(tmp_path):
     assert "0.0456" in text  # kept as written
     assert "0.0244" in text  # 0.0122 * 2, over its own file's two contrasts
     assert "0.0366" not in text
+
+
+@pytest.mark.parametrize(
+    "schema, timing, stale",
+    [
+        (None, None, True),  # a file from before any version: old timing
+        (3, 2, False),  # the trial says it was timed the new way
+        (6, 1, True),  # the trial says it was timed the old way
+        (4, None, False),  # schema 4 came after the timing fix
+    ],
+)
+def test_the_timing_version_decides_whether_spc_timing_is_stale(
+    tmp_path, schema, timing, stale
+):
+    family = tmp_path / "mnist-mlp"
+    row = _write_row(family, "mnist-mlp-spc", "spc", acc=0.98, se=0.001)
+    _write_trial(row, 0, algorithm="spc", schema=schema, timing=timing)
+
+    page = render(build_report(tmp_path), "md")
+
+    assert ("timed before the 2026-10-10 fix" in page) is stale

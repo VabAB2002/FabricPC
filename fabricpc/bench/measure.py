@@ -35,6 +35,14 @@ class Timing:
     step_memory: Optional[Dict[str, int]] = None  # see step_memory()
 
 
+# How step times are measured. Bump it when a change makes old step times
+# not comparable with new ones.
+# 1: timed a step that also returned the settled state, so sPC steps came
+#    out about twice too slow; files from then have no timing_version.
+# 2: times the step train() really runs (2026-10-10).
+TIMING_VERSION = 2
+
+
 def training_step(structure, optimizer, *, algorithm: str):
     """The jitted step ``train()`` runs when no iter_callback reads the state.
 

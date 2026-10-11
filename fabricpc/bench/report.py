@@ -200,10 +200,20 @@ def _curve_cell(trials: list, metric) -> str:
 def _timed_before_fix(trials: list) -> bool:
     """True when a trial's step time was measured before the timing fix.
 
-    The fix came with schema 4. A refreshed trial keeps its first version
-    in its refresh record.
+    A trial's ``timing_version`` says so directly. Older files have none;
+    for them, schema 4 (an hour after the fix) or later means after it, and
+    no schema or an older one counts as before (schema-3 runs from that hour
+    are flagged too: nothing in them tells them apart). A refreshed trial
+    keeps its first schema version in its refresh record.
     """
+    from fabricpc.bench.measure import TIMING_VERSION
+
     for t in trials:
+        timing = t.get("timing_version")
+        if isinstance(timing, int):
+            if timing < TIMING_VERSION:
+                return True
+            continue
         version = t.get("schema_version")
         for record in t.get("refresh") or []:
             for change in record.get("changes") or []:
@@ -213,7 +223,7 @@ def _timed_before_fix(trials: list) -> bool:
             else:
                 continue
             break
-        if isinstance(version, int) and version < 4:
+        if not isinstance(version, int) or version < 4:
             return True
     return False
 

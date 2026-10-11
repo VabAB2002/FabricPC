@@ -30,7 +30,8 @@ from fabricpc.bench.registry import BenchmarkRow
 #    contrasts carry p_holm, significant_holm_05, effect_size, hedges_gz
 # 5: manifest carries speed_test_ms, the machine's speed when the run started
 # 6: a two-row compare file carries holm_family, and its p_holm is NaN
-#    (uncorrected) unless both rows are in one family
+#    (uncorrected) unless both rows are in one family; trials carry
+#    timing_version (measure.TIMING_VERSION)
 SCHEMA_VERSION = 6
 
 

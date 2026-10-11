@@ -57,6 +57,10 @@ def test_run_trial_trains_measures_and_writes_a_json_file(tmp_path, rng_key, alg
     assert "memory_bytes" in on_disk
     assert "peak_memory_bytes" in on_disk
     assert on_disk["step_memory"]["total_bytes"] > 0
+    # Which way the step was timed, so a report can tell old timings apart.
+    from fabricpc.bench.measure import TIMING_VERSION
+
+    assert on_disk["timing_version"] == TIMING_VERSION
 
 
 def test_each_trial_gets_its_own_seed(tmp_path, rng_key):
