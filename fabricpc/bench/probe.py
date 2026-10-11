@@ -12,10 +12,11 @@ trial uses), then multiply out:
     cost     = hours * price per hour
 
 Evaluation is timed too, on a few test batches. ``evaluate`` builds a fresh
-jitted function every time it is called, so each call pays a compile. We
-time it twice, once on 1 batch and once on 1 + k batches, and the difference
-gives the per-batch time; what is left over is the compile. Each is the
-best of two tries, since compile times wobble.
+jitted function every time it is called, so each call pays a compile. One
+call on 1 + k batches is timed, with a mark when it asks for the second
+batch: the compile is over by then, so what came before is the compile and
+what follows is the batches' time (all 1 + k of them, since JAX runs the
+first batch while the loop moves on).
 
 The extras a real trial pays are timed too: the diagnostics at the start
 and the end of the trial (and the ePC regime there), and the safety net's
@@ -95,13 +96,18 @@ class RowProbe:
 
 
 class _Batches:
-    """A fixed list of batches, so evaluate() sees exactly these."""
+    """A fixed list of batches, so evaluate() sees exactly these. Notes the
+    moment the second batch is asked for: evaluate() has compiled by then."""
 
     def __init__(self, batches):
         self._batches = list(batches)
+        self.second_batch_at = None
 
     def __iter__(self):
-        return iter(self._batches)
+        for i, batch in enumerate(self._batches):
+            if i == 1:
+                self.second_batch_at = time.perf_counter()
+            yield batch
 
     def __len__(self):
         return len(self._batches)
@@ -124,7 +130,7 @@ def _time_eval(row, params, structure, test_loader, key, algorithm, k, slow):
     """(ms per test batch, compile seconds per evaluate call), or Nones.
 
     ``slow`` means a training step already takes a while; then we time only
-    2 extra batches, once each, so the probe itself stays cheap.
+    2 extra batches, so the probe itself stays cheap.
     """
     if slow:
         k = min(k, 2)
@@ -133,31 +139,29 @@ def _time_eval(row, params, structure, test_loader, key, algorithm, k, slow):
     first = list(itertools.islice(test_loader, k + 1))
     if not first:
         return None, None
-    batches = [first[i % len(first)] for i in range(k + 1)]
-    config = dict(row.train_config)
-    metrics = row.metrics_for(algorithm)
+    batches = _Batches(first[i % len(first)] for i in range(k + 1))
 
-    def seconds(n):
-        t0 = time.perf_counter()
-        evaluate(
-            params,
-            structure,
-            _Batches(batches[:n]),
-            config,
-            key,
-            algorithm=algorithm,
-            metrics=metrics,
-        )
-        return time.perf_counter() - t0
-
-    # Each call's compile time wobbles by more than a small model's batch
-    # time, so take the best of two tries of each (one try on slow rows,
-    # where the batch time is far bigger than the wobble).
-    tries = 1 if slow else 2
-    one = min(seconds(1) for _ in range(tries))
-    more = min(seconds(k + 1) for _ in range(tries))
-    per_batch = max((more - one) / k, 0.0)
-    return per_batch * 1000.0, max(one - per_batch, 0.0)
+    # One call on 1 + k batches. evaluate() compiles on its first batch, so
+    # by the time it asks for the second the compile is over: what comes
+    # before is the compile, what comes after is the batches. JAX does not
+    # wait for a batch to finish before asking for the next, so the first
+    # batch mostly runs after the mark too: 1 + k batches. Timing two calls
+    # and subtracting them did not work: the compile wobbled by more than
+    # the batches between the calls (the transformer read 0.0 ms per batch
+    # on a T4).
+    t0 = time.perf_counter()
+    evaluate(
+        params,
+        structure,
+        batches,
+        dict(row.train_config),
+        key,
+        algorithm=algorithm,
+        metrics=row.metrics_for(algorithm),
+    )
+    end = time.perf_counter()
+    per_batch = (end - batches.second_batch_at) / (k + 1)
+    return per_batch * 1000.0, batches.second_batch_at - t0
 
 
 def _seconds(fn) -> float:

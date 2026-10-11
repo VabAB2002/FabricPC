@@ -698,3 +698,23 @@ def test_max_train_steps_trains_exactly_that_many_steps(tmp_path, monkeypatch, r
     assert trial["train_steps_capped"] == 2
     assert trial["num_epochs"] == pytest.approx(2 / 3)  # the tiny loader has 3
     assert len(steps) == 2 * 2  # 2 steps in each of the 2 trials
+
+
+def test_the_printed_lines_show_the_rows_own_score(
+    tmp_path, monkeypatch, rng_key, capsys
+):
+    # A transformer row is scored on forward_perplexity, not accuracy; the
+    # lines printed after each trial and after the row must say so.
+    tiny = register_tiny_row(monkeypatch, rng_key)
+    monkeypatch.setitem(
+        registry.ROWS, "tiny-mlp-spc", dataclasses.replace(tiny, metric="energy")
+    )
+
+    code = main(_tiny_args(tmp_path))
+
+    assert code == 0
+    lines = capsys.readouterr().out.splitlines()
+    trial_lines = [x for x in lines if x.startswith("tiny-mlp-spc trial ")]
+    assert trial_lines and all("energy=" in x for x in trial_lines)
+    assert not any("accuracy=" in x for x in trial_lines)
+    assert any(x.startswith("tiny-mlp-spc: energy ") for x in lines)

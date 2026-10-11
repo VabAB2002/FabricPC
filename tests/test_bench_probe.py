@@ -170,3 +170,39 @@ def test_probe_leaves_out_what_a_run_will_skip(rng_key):
 
     assert pc.diagnostics_s_per_seed == 0.0  # run with --no-diagnostics / --fast
     assert bp.safety_net_probes == 0 and bp.safety_net_s_per_seed == 0.0
+
+
+def test_eval_timing_is_not_swamped_by_a_wobbling_compile(monkeypatch):
+    # Each evaluate() call compiles first. On the GPU that compile wobbled by
+    # more than the batches it was meant to be subtracted from, and the
+    # transformer's eval read 0.0 ms per batch. Here a batch takes 10 ms and
+    # the compile swings between 300 ms and 150 ms from one call to the next.
+    # The clock is fake, so a busy machine cannot stretch the times.
+    import itertools
+    from types import SimpleNamespace
+
+    from fabricpc.bench import probe as probe_module
+
+    now = [0.0]
+    monkeypatch.setattr(
+        probe_module, "time", SimpleNamespace(perf_counter=lambda: now[0])
+    )
+    compiles = itertools.cycle([0.30, 0.30, 0.15, 0.15])
+
+    def fake_evaluate(params, structure, loader, config, key, **_):
+        compile_s = next(compiles)
+        for i, _batch in enumerate(loader):
+            if i == 0:
+                now[0] += compile_s
+            now[0] += 0.010
+        return {}
+
+    monkeypatch.setattr(probe_module, "evaluate", fake_evaluate)
+    row = SimpleNamespace(train_config={}, metrics_for=lambda algorithm: None)
+
+    ms, compile_s = probe_module._time_eval(
+        row, None, None, list(range(10)), None, "pc", 8, slow=False
+    )
+
+    assert 7.0 < ms < 12.0
+    assert 0.14 < compile_s < 0.32

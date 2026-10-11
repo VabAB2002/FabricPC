@@ -257,8 +257,8 @@ def _run_row(
             **extra,
         )
         if result.status == "ok":
-            acc = result.metrics.get("accuracy")
-            shown = f"accuracy={acc:.4f}" if acc is not None else ""
+            score = result.metrics.get(row.metric)
+            shown = f"{row.metric}={score:.4f}" if score is not None else ""
             print(
                 f"{row.id} trial {trial}: {shown} step={result.step_time_ms:.2f}ms "
                 f"train={result.train_time_s:.1f}s"
@@ -277,12 +277,12 @@ def _run_row(
         except ValueError as e:  # e.g. trials that ran different lengths
             print(f"{row.id}: no summary: {e}", file=sys.stderr)
             return max(failed, 1), None
-        acc = summary.metrics.get("accuracy")
-        if acc:
+        score = summary.metrics.get(row.metric)
+        if score:
             print(
-                f"{row.id}: accuracy {acc['mean']:.4f} ± {acc['se']:.4f} SE, "
-                f"95% CI [{acc['ci95_low']:.4f}, {acc['ci95_high']:.4f}] "
-                f"(n={acc['n']}), step {summary.timing['step_time_ms']['mean']:.2f}ms"
+                f"{row.id}: {row.metric} {score['mean']:.4f} ± {score['se']:.4f} SE, "
+                f"95% CI [{score['ci95_low']:.4f}, {score['ci95_high']:.4f}] "
+                f"(n={score['n']}), step {summary.timing['step_time_ms']['mean']:.2f}ms"
             )
         _print_pc_likeness(row.id, summary)
         band = summary.band
