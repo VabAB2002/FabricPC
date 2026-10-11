@@ -22,6 +22,7 @@ from fabricpc.bench.measure import (
     time_steps,
 )
 from fabricpc.bench.registry import BenchmarkRow
+from fabricpc.bench.xla_flops import xla_compute
 from fabricpc.bench.zoo import save_params
 from fabricpc.training import InferenceRateController, evaluate, train
 from fabricpc.training.trainer import build_clamps, convert_batch
@@ -289,13 +290,29 @@ def run_trial(
         if max_eval_batches is not None:
             test_loader = _BatchList(itertools.islice(test_loader, max_eval_batches))
 
-        compute = count_compute(
-            params, structure, batch_size=row.batch_size, algorithm=row.algorithm
-        )
+        # The hand count (sponsor-style, nominal) and XLA's count of what
+        # really runs; TFLOP/s uses XLA's when it can be made.
+        compute = {
+            **asdict(
+                count_compute(
+                    params,
+                    structure,
+                    batch_size=row.batch_size,
+                    algorithm=row.algorithm,
+                )
+            ),
+            **xla_compute(
+                params,
+                structure,
+                optimizer,
+                convert_batch(probe),
+                timing_key,
+                algorithm,
+            ),
+        }
+        flops = compute.get("xla_flops_per_update", compute["flops_per_update"])
         # tflops = flops per update / seconds per update / 1e12
-        achieved_tflops = (
-            compute.flops_per_update / (timing.step_time_ms / 1000.0) / 1e12
-        )
+        achieved_tflops = flops / (timing.step_time_ms / 1000.0) / 1e12
 
         config = {**row.train_config, "num_epochs": epochs}
         t0 = time.perf_counter()
@@ -428,7 +445,7 @@ def run_trial(
             ),
             curve=curve.points if curve.enabled else None,
             num_epochs=epochs,
-            compute=asdict(compute),
+            compute=compute,
             achieved_tflops=achieved_tflops,
             checkpoint=checkpoint,
             eval_batches_capped=max_eval_batches,

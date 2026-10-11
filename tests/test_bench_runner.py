@@ -63,6 +63,16 @@ def test_run_trial_trains_measures_and_writes_a_json_file(tmp_path, rng_key, alg
     assert on_disk["timing_version"] == TIMING_VERSION
     # Only rows with a safety net spend time in it.
     assert (on_disk["safety_net_s"] is None) == (row.rate_control is None)
+    # The FLOPs XLA compiled for one update drive the TFLOP/s; the hand
+    # count stays as the nominal one.
+    compute = on_disk["compute"]
+    assert compute["xla_flops_per_update"] > 0
+    assert compute["flops_per_update"] > 0
+    assert on_disk["achieved_tflops"] == pytest.approx(
+        compute["xla_flops_per_update"] / (result.step_time_ms / 1000) / 1e12
+    )
+    if algorithm == "backprop":
+        assert compute["xla_pc_to_backprop_ratio"] == 1.0
 
 
 def test_each_trial_gets_its_own_seed(tmp_path, rng_key):

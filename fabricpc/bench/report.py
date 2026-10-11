@@ -312,8 +312,12 @@ def _cost(summary: dict) -> dict:
         value = (timing.get(key) or {}).get("mean")
         return value if isinstance(value, (int, float)) else None
 
+    # XLA's count of what really runs when the run made one; older runs
+    # only have the hand count, marked nominal in the table.
+    xla = compute.get("xla_pc_to_backprop_ratio")
     return {
-        "ratio": compute.get("pc_to_backprop_ratio"),
+        "ratio": xla if xla is not None else compute.get("pc_to_backprop_ratio"),
+        "ratio_nominal": xla is None and "pc_to_backprop_ratio" in compute,
         "tflops": mean("achieved_tflops"),
         "compile_s": mean("compile_time_s"),
         "memory_mb": (
@@ -463,7 +467,7 @@ def _family_blocks(folder: Path, row_dirs: list, root: Path) -> list:
                 [
                     row["id"],
                     (
-                        f"{ratio:.2f}x"
+                        f"{ratio:.2f}x" + (" (nominal)" if c["ratio_nominal"] else "")
                         if isinstance(ratio, (int, float)) and ratio == ratio
                         else "-"
                     ),
@@ -473,7 +477,7 @@ def _family_blocks(folder: Path, row_dirs: list, root: Path) -> list:
                     row["curve"],
                 ]
             )
-        head = ["row", "PC/BP matmuls per update", "TFLOP/s", "step memory"]
+        head = ["row", "PC/BP FLOPs per update (XLA)", "TFLOP/s", "step memory"]
         head += ["compile s", "learning curve (each row's metric, per epoch)"]
         blocks.append(("table", head, cost))
     if contrasts:

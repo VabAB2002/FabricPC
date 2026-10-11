@@ -32,7 +32,9 @@ from fabricpc.bench.registry import BenchmarkRow
 # 6: a two-row compare file carries holm_family, and its p_holm is NaN
 #    (uncorrected) unless both rows are in one family; trials carry
 #    timing_version (measure.TIMING_VERSION) and safety_net_s
-SCHEMA_VERSION = 6
+# 7: trial compute carries xla_flops_per_update, xla_flops_per_update_backprop
+#    and xla_pc_to_backprop_ratio; achieved_tflops uses XLA's count
+SCHEMA_VERSION = 7
 
 
 def _speed_test() -> Optional[float]:

@@ -510,3 +510,16 @@ def test_the_timing_version_decides_whether_spc_timing_is_stale(
     page = render(build_report(tmp_path), "md")
 
     assert ("timed before the 2026-10-10 fix" in page) is stale
+
+
+def test_the_cost_table_prefers_xlas_count_to_the_nominal_one(tmp_path):
+    family = tmp_path / "cifar10-vgg5"
+    row = _write_row(family, "cifar10-vgg5-spc", "spc", acc=0.84, se=0.002)
+    _with_cost(row, ratio=5.67, tflops=4.9, mem_bytes=1_478_000_000, compile_s=3.2)
+    summary = json.loads((row / "summary.json").read_text())
+    summary["compute"]["xla_pc_to_backprop_ratio"] = 5.91
+    (row / "summary.json").write_text(json.dumps(summary))
+
+    page = render(build_report(tmp_path), "md")
+
+    assert "5.91x" in page and "5.67x" not in page

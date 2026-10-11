@@ -183,6 +183,8 @@ def refresh_trial(
                 row_id, trial["algorithm"], saved, batch_size, trial.get("n_params")
             )
         )
+        # XLA's count was made with the model at hand; keep it.
+        compute.update({k: v for k, v in saved.items() if k.startswith("xla_")})
         if compute != saved:
             new["compute"] = compute
             changes.append(
@@ -190,7 +192,8 @@ def refresh_trial(
             )
         step_s = float(trial.get("step_time_ms") or 0.0) / 1000.0
         if step_s > 0:
-            tflops = compute["flops_per_update"] / step_s / 1e12
+            flops = compute.get("xla_flops_per_update", compute["flops_per_update"])
+            tflops = flops / step_s / 1e12
             if tflops != trial.get("achieved_tflops"):
                 new["achieved_tflops"] = tflops
                 changes.append(

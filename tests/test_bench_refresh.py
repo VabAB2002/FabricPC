@@ -143,6 +143,25 @@ def test_flops_are_recounted_with_the_current_counter(old_mlp, tmp_path):
     )
 
 
+def test_xla_counts_are_kept_and_drive_the_tflops(old_mlp, tmp_path):
+    # XLA's count can only be made with the model at hand; a recount from
+    # the graph must not drop it, and TFLOP/s should keep using it.
+    for path in old_mlp.glob(f"{MLP.id}/trial*.json"):
+        data = json.loads(path.read_text())
+        if data["status"] == "ok":
+            data["compute"]["xla_flops_per_update"] = 4.0e9
+            data["compute"]["xla_flops_per_update_backprop"] = 1.0e9
+            data["compute"]["xla_pc_to_backprop_ratio"] = 4.0
+            path.write_text(json.dumps(data))
+    out = tmp_path / "new"
+    refresh_results(old_mlp, out)
+
+    t = _trial(out, MLP.id)
+    assert t["compute"]["xla_flops_per_update"] == 4.0e9
+    assert t["compute"]["xla_pc_to_backprop_ratio"] == 4.0
+    assert t["achieved_tflops"] == pytest.approx(4.0e9 / (10.0 / 1000) / 1e12)
+
+
 def test_the_saved_settling_steps_are_kept(old_mlp, tmp_path):
     # The row's solver today settles for 20 steps; the old run used 3. The
     # recount must describe the run that happened, not today's row.
