@@ -131,6 +131,10 @@ all = [
 where = ["."]
 include = ["fabricpc*"]
 
+# Non-Python files the package reads at run time (the queue's GPU plans).
+[tool.setuptools.package-data]
+"fabricpc.bench" = ["plans/*.json"]
+
 [tool.black]
 line-length = 88
 target-version = ["py311", "py312", "py313"]
