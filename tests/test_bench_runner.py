@@ -61,6 +61,8 @@ def test_run_trial_trains_measures_and_writes_a_json_file(tmp_path, rng_key, alg
     from fabricpc.bench.measure import TIMING_VERSION
 
     assert on_disk["timing_version"] == TIMING_VERSION
+    # Only rows with a safety net spend time in it.
+    assert (on_disk["safety_net_s"] is None) == (row.rate_control is None)
 
 
 def test_each_trial_gets_its_own_seed(tmp_path, rng_key):
@@ -281,6 +283,10 @@ def test_an_epc_row_can_follow_lambda_max(tmp_path, rng_key):
 
     on_disk = json.loads((tmp_path / row.id / "trial0.json").read_text())
     assert on_disk["rate_control"]["summary"]["probes"] == 4
+    # train_time_s includes the safety net, which backprop rows do not run;
+    # its own share is recorded so the two can be told apart.
+    assert 0 < result.safety_net_s < result.train_time_s
+    assert on_disk["safety_net_s"] == result.safety_net_s
 
 
 def test_rows_without_rate_control_record_none(tmp_path, rng_key):

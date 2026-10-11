@@ -123,6 +123,23 @@ def _forward_metrics(
     return {FORWARD_PREFIX + k: float(v) for k, v in raw.items()}
 
 
+class _Stopwatch:
+    """Adds up the time spent inside the calls it wraps."""
+
+    def __init__(self):
+        self.seconds = 0.0
+
+    def wrap(self, fn):
+        def timed(*args, **kwargs):
+            start = time.perf_counter()
+            try:
+                return fn(*args, **kwargs)
+            finally:
+                self.seconds += time.perf_counter() - start
+
+        return timed
+
+
 def probe_batch(loader):
     """The fixed batch the diagnostics, the regime and the safety net read.
 
@@ -192,6 +209,10 @@ class TrialResult:
     # How step_time_ms was measured (measure.TIMING_VERSION); None in files
     # written before it was recorded.
     timing_version: Optional[int] = None
+    # Seconds of train_time_s spent in the safety net (rows with
+    # rate_control only). train_time_s also holds the wait for every batch
+    # its callback causes, so compare speed across methods by step_time_ms.
+    safety_net_s: Optional[float] = None
     status: str = "ok"
     error: Optional[str] = None
     schema_version: int = SCHEMA_VERSION
@@ -280,6 +301,7 @@ def run_trial(
         t0 = time.perf_counter()
         controller = None
         train_structure = structure
+        safety_net = _Stopwatch()
         if row.rate_control is not None:
             # The probe batch is the same fixed batch the regime is read on.
             controller = InferenceRateController(
@@ -290,7 +312,7 @@ def run_trial(
                 window=row.rate_control.window,
                 key=timing_key,
             )
-            train_structure = controller.start(params)
+            train_structure = safety_net.wrap(controller.start)(params)
         curve = _Curve(
             train_structure,
             test_loader,
@@ -310,10 +332,14 @@ def run_trial(
             algorithm=algorithm,
             verbose=False,
             epoch_callback=curve.on_epoch if curve.enabled else None,
-            structure_callback=controller.on_iter if controller else None,
+            structure_callback=(
+                safety_net.wrap(controller.on_iter) if controller else None
+            ),
         )
-        # The curve's evaluations are not training time. The rate probes
-        # are: a followed rate costs them on every run.
+        # The curve's evaluations are not training time. The safety net's
+        # probes are (a followed rate costs them on every run), but only PC
+        # rows have one, and its callback makes train() wait for every batch;
+        # its own share is kept apart in safety_net_s.
         train_time_s = time.perf_counter() - t0 - curve.seconds
         if controller is not None:
             # Evaluate and read the regime at the rate the run ended on.
@@ -374,6 +400,7 @@ def run_trial(
             compile_time_s=timing.compile_time_s,
             step_time_ms=timing.step_time_ms,
             train_time_s=train_time_s,
+            safety_net_s=safety_net.seconds if controller else None,
             memory_bytes=memory,
             peak_memory_bytes=peak_memory,
             step_memory=timing.step_memory,
