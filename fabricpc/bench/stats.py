@@ -31,8 +31,11 @@ def holm(p_values: Sequence[float]) -> List[float]:
 
 
 def hedges_gz(d_z: float, *, n: int) -> float:
-    """d_z times Hedges' small-sample factor J(n - 1); NaN below 2 pairs."""
+    """d_z times Hedges' small-sample factor J(n - 1); NaN below 3 pairs.
+
+    With two pairs J(1) = 0, so every effect would print as 0.
+    """
     df = n - 1
-    if df < 1:
+    if df < 2:
         return float("nan")
     return float(d_z) * (1.0 - 3.0 / (4.0 * df - 1.0))

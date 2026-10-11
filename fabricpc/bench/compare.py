@@ -167,14 +167,20 @@ def corrected(contrasts: List[dict]) -> List[dict]:
 
     Rows that score exactly the same on every seed have no spread to test;
     the t-test then gives NaN, so they are written as what they are: a
-    difference of 0, p = 1.
+    difference of 0, p = 1. The framework's d_z is 0 whenever the
+    differences have no spread, which reads as "no effect"; a difference
+    that is the same non-zero amount on every seed, or a NaN score, has no
+    finite effect size, so d_z is NaN there.
     """
     fixed = []
     for c in contrasts:
         c = dict(c)
-        if c["mean_diff"] == 0 and not c["se_diff"]:
+        mean, se = c["mean_diff"], c["se_diff"]
+        if mean == 0 and not se:
             c.update(p_value=1.0, t_statistic=0.0, cohens_d=0.0)
             c["significant_at_05"] = False
+        elif math.isnan(mean) or not se:
+            c["cohens_d"] = math.nan
         fixed.append(c)
     for c, p in zip(fixed, holm([c["p_value"] for c in fixed])):
         c["p_holm"] = p
