@@ -76,9 +76,11 @@ def test_cifar10_resnet18_rows_are_registered(rng_key):
 
 
 def test_tinyshakespeare_transformer_rows_are_registered(rng_key):
-    # Character-level language modeling; the row reports perplexity.
+    # Character-level language modeling; the row is judged on perplexity
+    # from a plain forward pass, the same way for every method.
     for algo in ("spc", "epc", "backprop"):
         row = ROWS[f"tinyshakespeare-transformer-{algo}"]
+        assert row.metric == "forward_perplexity"
         assert row.dataset == "tinyshakespeare"
         assert row.model == "transformer"
         assert row.tier == 1
@@ -151,7 +153,7 @@ def test_transformer_learning_rate_is_a_cosine_decay_to_a_tenth():
 def test_each_family_compares_on_its_own_metric():
     from fabricpc.bench.registry import COMPARISONS
 
-    assert COMPARISONS["tinyshakespeare-transformer"].metric == "perplexity"
+    assert COMPARISONS["tinyshakespeare-transformer"].metric == "forward_perplexity"
     assert COMPARISONS["cifar10-vgg5"].metric == "accuracy"
     assert COMPARISONS["mnist-mlp"].metric == "accuracy"
 

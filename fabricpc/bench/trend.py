@@ -52,6 +52,15 @@ MIN_SLOWDOWN = 0.15  # relative
 MIN_SCORE_DROP = 0.005  # absolute, for higher-is-better scores
 MIN_SCORE_WORSE = 0.05  # relative, for lower-is-better scores
 LOWER_IS_BETTER = {"reconstruction_mse", "perplexity", "cross_entropy", "forgetting"}
+
+
+def lower_is_better(metric: str) -> bool:
+    """True for scores where lower is better, with or without ``forward_``."""
+    from fabricpc.bench.runner import FORWARD_PREFIX
+
+    return metric.removeprefix(FORWARD_PREFIX) in LOWER_IS_BETTER
+
+
 _MAD_TO_SD = 1.4826  # median absolute deviation -> standard deviation (normal)
 _GROUP_KEYS = (
     "device",
@@ -79,7 +88,7 @@ class Alert:
         sha = (self.git_sha or "unknown")[:10]
         if self.what in ("failed_seeds", "non_finite"):
             return f"{self.row_id}: {self.what}: {self.detail} at {sha}"
-        relative = self.what == "step_time_ms" or self.what in LOWER_IS_BETTER
+        relative = self.what == "step_time_ms" or lower_is_better(self.what)
         size = (
             f"{self.change:+.0%}, alarm at {self.threshold:.0%}"
             if relative
@@ -342,7 +351,7 @@ def check(
             alerts.append(_alert(row_id, "step_time_ms", verdict, sha, adjusted))
 
         metric = newest["metric"]
-        lower = metric in LOWER_IS_BETTER
+        lower = lower_is_better(metric)
         scores = [_median(r["values"]) for r in group]
         verdict = _judge(
             scores,

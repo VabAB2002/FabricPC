@@ -19,7 +19,9 @@ def test_bpe_rows_are_registered_as_a_tier_2_perplexity_family():
         assert row.dataset == "tinyshakespeare-bpe"
         assert row.model == "transformer"
         assert row.algorithm == algo
-        assert row.metric == "perplexity"
+        # Scored with a plain forward pass: a settled PC output is
+        # over-confident and inflates its perplexity.
+        assert row.metric == "forward_perplexity"
         assert row.tier == 2
         # examples/transformer_v2_demo.py BPE_DEFAULTS
         assert row.batch_size == 32
@@ -29,7 +31,7 @@ def test_bpe_rows_are_registered_as_a_tier_2_perplexity_family():
 def test_bpe_family_is_compared_apart_from_the_char_family():
     comparison = COMPARISONS[FAMILY]
     assert comparison.rows == tuple(f"{FAMILY}-{algo}" for algo in ALGORITHMS)
-    assert comparison.metric == "perplexity"
+    assert comparison.metric == "forward_perplexity"
     assert "tinyshakespeare-transformer" in COMPARISONS
     assert COMPARISONS["tinyshakespeare-transformer"].rows != comparison.rows
 

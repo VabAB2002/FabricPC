@@ -521,7 +521,10 @@ def _tinyshakespeare_transformer_family() -> Dict[str, BenchmarkRow]:
             train_config={"num_epochs": c["num_epochs"]},
             batch_size=c["batch_size"],
             rate_control=_safety_net(algo),
-            metric="perplexity",
+            # A plain forward pass, the same for every method: a settled PC
+            # output is over-confident and inflates its perplexity. The
+            # settled number stays in the trial as perplexity.
+            metric="forward_perplexity",
         )
     return rows
 

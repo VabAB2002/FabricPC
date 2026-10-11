@@ -188,6 +188,9 @@ def tinyshakespeare_bpe_transformer_family() -> Dict[str, object]:
             # 7.5k steps an epoch with 23 settles each on an 11711-way
             # output: much heavier than the char rows.
             tier=2,
-            metric="perplexity",
+            # A plain forward pass, the same for every method: a settled PC
+            # output is over-confident and inflates its perplexity. The
+            # settled number stays in the trial as perplexity.
+            metric="forward_perplexity",
         )
     return rows

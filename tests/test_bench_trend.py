@@ -316,3 +316,19 @@ def test_the_nightly_job_fails_when_trend_finds_a_regression():
     assert _pipes_keep_failures(workflow)
     runs = [s.get("run", "") for s in workflow["jobs"]["nightly-cpu"]["steps"]]
     assert any("trend check" in r for r in runs)
+
+
+def test_forward_scores_keep_their_direction():
+    # forward_perplexity is perplexity scored with a plain forward pass:
+    # lower is still better.
+    assert trend.lower_is_better("forward_perplexity")
+    assert trend.lower_is_better("perplexity")
+    assert not trend.lower_is_better("forward_accuracy")
+
+
+def test_a_higher_forward_perplexity_on_two_nights_is_flagged(tmp_path):
+    kw = dict(metric="forward_perplexity")
+    _quiet_nights(tmp_path, value=7.0, **kw)
+    _night(tmp_path, 10, value=8.0, seed=98, **kw)
+    _night(tmp_path, 11, value=8.0, seed=99, **kw)
+    assert [a.what for a in trend.check(tmp_path)] == ["forward_perplexity"]
