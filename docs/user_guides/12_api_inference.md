@@ -134,7 +134,7 @@ Chained execution contract:
 
 Schedules nest, and `segments()` flattens them for per-step consumers (tracking iterates segments instead of assuming one global step count). A schedule has no single per-step rule, so `inference_step()` and `compute_new_latent()` raise. Under a composed schedule, a tracked `latent_grad_norm` series carries each segment's own gradient semantics — sPC's one-hop dE/dz_latent, ePC's full-forward ε gradient.
 
-A few ePC steps then sPC steps is also a stability remedy: the ePC segment runs at a low η·T as a warm start that carries the loss signal to every layer, and the sPC segment finishes the settle on the exact graph energy at the per-node rate. `RegimeProbe` needs the ePC segment as `inference=`. [Training with ePC](17_training_with_epc.md#composing-epc-and-spc) shows how to measure what the warm start saves on your graph.
+A few ePC steps then sPC steps is also a stability remedy: the ePC segment runs at a low η·T as a warm start that carries the loss signal to every layer, and the sPC segment finishes the settle on the exact graph energy at the per-node rate. `RegimeProbe` finds the schedule's ePC segment by itself (pass `inference=` when there are several). [Training with ePC](17_training_with_epc.md#composing-epc-and-spc) shows how to measure what the warm start saves on your graph.
 
 ## Tuning Guidance
 

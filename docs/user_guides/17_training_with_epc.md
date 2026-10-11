@@ -137,7 +137,7 @@ eta*T*lambda_max = 4 (gradient-weighted relaxed fraction 0.98, fastest mode 0.99
 
 ### Step 5: Attach the probe
 
-`RegimeProbe` re-measures the spectrum every `every` weight updates on the probe batch and records the flags, the weight norms, and the accuracy you pass to `on_epoch`. `evaluate` returns a dict; pass its `"accuracy"`. Any `iter_callback` forces a device sync per batch; the probe itself is one initialization and 30 Hessian-vector products per probe. Under an `InferenceSchedule`, pass the ePC segment as `inference=`, or the regime columns stay blank.
+`RegimeProbe` re-measures the spectrum every `every` weight updates on the probe batch and records the flags, the weight norms, and the accuracy you pass to `on_epoch`. `evaluate` returns a dict; pass its `"accuracy"`. Any `iter_callback` forces a device sync per batch; the probe itself is one initialization and 30 Hessian-vector products per probe. Under an `InferenceSchedule` the probe finds the schedule's ePC segment by itself; pass it as `inference=` when the schedule has more than one. Under `algorithm="pc"` with no ePC solver the probe raises at its first update instead of writing blank regime columns.
 
 ```python
 from fabricpc.training import RegimeProbe, evaluate, train

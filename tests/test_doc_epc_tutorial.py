@@ -268,9 +268,10 @@ class TestComposition:
         assert energy_at(T_epc) < energy_at(0)
         assert energy_at(T_epc + T_spc) < energy_at(T_epc)
 
-        # the probe under a schedule: blank without inference=, filled with it
-        blank = RegimeProbe(schedule, clamps, every=1, iters=12, key=rng_key)
-        assert blank.inference is None
+        # the probe under a schedule finds its one ePC segment by itself
+        # (issue #74), and inference= still names it explicitly
+        found = RegimeProbe(schedule, clamps, every=1, iters=12, key=rng_key)
+        assert found.inference is epc
         probe = RegimeProbe(
             schedule, clamps, every=1, iters=12, inference=epc, key=rng_key
         )
