@@ -94,11 +94,31 @@ def test_the_command_exits_nonzero_only_on_a_fail(monkeypatch, tmp_path, capsys)
     assert main(["doctor", "--out", str(tmp_path)]) == 1
 
 
+Device = collections.namedtuple("Device", "platform device_kind")
+CPU_ONLY = [Device("cpu", "cpu")]
+ONE_GPU = [Device("gpu", "Tesla T4"), Device("cpu", "cpu")]
+
+
+def _machine(monkeypatch, devices):
+    """Pretend JAX sees ``devices``, so the answer is the same on any machine."""
+    import jax
+
+    monkeypatch.setattr(jax, "devices", lambda: devices)
+
+
 def test_expect_gpu_turns_a_cpu_only_machine_into_a_failure(monkeypatch):
     # Before a GPU campaign, a CUDA install that fell back to the CPU must
     # stop the run, not pass with a warning.
-    assert doctor.check_devices(expect_gpu=False).status in ("ok", "warn")
-    assert doctor.check_devices(expect_gpu=True).status == "fail"  # this is a CPU
+    _machine(monkeypatch, CPU_ONLY)
+    assert doctor.check_devices(expect_gpu=False).status == "warn"
+    assert doctor.check_devices(expect_gpu=True).status == "fail"
+
+
+def test_expect_gpu_passes_when_jax_sees_a_gpu(monkeypatch):
+    _machine(monkeypatch, ONE_GPU)
+    check = doctor.check_devices(expect_gpu=True)
+    assert check.status == "ok"
+    assert "Tesla T4" in check.detail
 
 
 def test_a_jax_that_cannot_start_is_a_failed_check_not_a_crash(monkeypatch):
@@ -118,4 +138,5 @@ def test_the_command_takes_expect_gpu(monkeypatch, tmp_path):
         doctor, "check_one_step", lambda: doctor.Check("step", "ok", "")
     )
     monkeypatch.setattr(doctor.shutil, "disk_usage", lambda p: Usage(0, 0, 90 * GB))
+    _machine(monkeypatch, CPU_ONLY)
     assert main(["doctor", "--out", str(tmp_path), "--expect-gpu"]) == 1
