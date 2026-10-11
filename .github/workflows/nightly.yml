@@ -25,6 +25,12 @@ concurrency:
   group: nightly
   cancel-in-progress: false
 
+# bash with pipefail for every step: `trend check ... | tee trend.txt` must
+# fail the step when trend finds a regression, not take tee's exit code.
+defaults:
+  run:
+    shell: bash
+
 jobs:
   nightly-cpu:
     runs-on: ubuntu-latest

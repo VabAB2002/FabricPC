@@ -115,3 +115,31 @@ def test_the_command_needs_a_history(capsys):
 
     assert main(["trend", "check"]) == 2
     assert "--history" in capsys.readouterr().err
+
+
+def _pipes_keep_failures(workflow: dict) -> bool:
+    """Every step that pipes a command keeps its failure: bash (pipefail)
+    as the step's or the workflow's shell, or `set -o pipefail` in it."""
+    default = ((workflow.get("defaults") or {}).get("run") or {}).get("shell")
+    for job in workflow["jobs"].values():
+        for step in job["steps"]:
+            run = step.get("run", "")
+            if "|" not in run:
+                continue
+            shell = step.get("shell", default)
+            if shell != "bash" and "set -o pipefail" not in run:
+                return False
+    return True
+
+
+def test_the_nightly_job_fails_when_trend_finds_a_regression():
+    # GitHub's default shell has no pipefail, so `trend check | tee` would
+    # take tee's exit code and a regression would never fail the night.
+    from pathlib import Path
+
+    yaml = pytest.importorskip("yaml")
+    repo = Path(__file__).resolve().parents[1]
+    workflow = yaml.safe_load((repo / ".github/workflows/nightly.yml").read_text())
+    assert _pipes_keep_failures(workflow)
+    runs = [s.get("run", "") for s in workflow["jobs"]["nightly-cpu"]["steps"]]
+    assert any("trend check" in r for r in runs)
