@@ -123,6 +123,16 @@ def _forward_metrics(
     return {FORWARD_PREFIX + k: float(v) for k, v in raw.items()}
 
 
+def probe_batch(loader):
+    """The fixed batch the diagnostics, the regime and the safety net read.
+
+    A loader with its own ``probe_batch()`` gives that (the continual rows'
+    mixes both tasks); any other gives its first batch.
+    """
+    own = getattr(loader, "probe_batch", None)
+    return own() if callable(own) else next(iter(loader))
+
+
 def _finite_or_none(value):
     """NaN and infinity as None, so the trial file is strict JSON.
 
@@ -247,10 +257,10 @@ def run_trial(
             timed_steps=timed_steps,
         )
         memory = memory_snapshot().bytes_in_use
-        probe_batch = next(iter(timing_loader))
-        regime_at_init = epc_regime(params, structure, probe_batch, timing_key)
+        probe = probe_batch(timing_loader)
+        regime_at_init = epc_regime(params, structure, probe, timing_key)
         diag_init = (
-            diagnose(params, structure, probe_batch, timing_key, row.algorithm)
+            diagnose(params, structure, probe, timing_key, row.algorithm)
             if diagnostics
             else None
         )
@@ -274,7 +284,7 @@ def run_trial(
             # The probe batch is the same fixed batch the regime is read on.
             controller = InferenceRateController(
                 structure,
-                build_clamps(convert_batch(probe_batch), structure, clamp_target=True),
+                build_clamps(convert_batch(probe), structure, clamp_target=True),
                 target=row.rate_control.target,
                 every=row.rate_control.every,
                 window=row.rate_control.window,
@@ -338,7 +348,7 @@ def run_trial(
         if regime_at_init is not None:
             regime = {
                 "init": regime_at_init,
-                "final": epc_regime(trained.params, structure, probe_batch, timing_key),
+                "final": epc_regime(trained.params, structure, probe, timing_key),
             }
 
         checkpoint = None
@@ -376,7 +386,7 @@ def run_trial(
                     "final": diagnose(
                         trained.params,
                         structure,
-                        probe_batch,
+                        probe,
                         timing_key,
                         row.algorithm,
                     ),

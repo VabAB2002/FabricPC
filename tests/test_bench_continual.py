@@ -50,6 +50,39 @@ def test_blocks_alternate_between_the_two_tasks():
     assert seen[1] == seen[3] == {1, 3, 5, 7, 9}
 
 
+def test_the_probe_batch_mixes_both_tasks_and_leaves_the_stream_alone():
+    # The diagnostics read one batch at the start and the end of training;
+    # it used to be the second block's first batch, so always task B.
+    block, _ = continual.loaders_from_arrays(
+        fake_split(20), fake_split(5), seed=0, per_class=12
+    )
+    for _ in block:  # timing reads block 0
+        break
+
+    x, y = block.probe_batch()
+
+    assert len(x) == len(y) == continual.BATCH_SIZE
+    raw = np.round((x[:, 0] * continual._STD + continual._MEAN) * 255).astype(int)
+    in_a = np.isin(raw, continual.TASKS[0]).sum()
+    assert in_a == len(x) // 2  # half task A, half task B
+    assert block.block == 1  # the next pass is still block 1
+    x2, _ = block.probe_batch()
+    assert (x == x2).all()  # the same batch at the start and at the end
+
+
+def test_the_runner_reads_a_loaders_own_probe_batch():
+    from fabricpc.bench.runner import probe_batch
+
+    block, _ = continual.loaders_from_arrays(
+        fake_split(20), fake_split(5), seed=0, per_class=12
+    )
+    for _ in block:
+        break
+    assert (probe_batch(block)[0] == block.probe_batch()[0]).all()
+    plain = [("x0", "y0"), ("x1", "y1")]
+    assert probe_batch(plain) == ("x0", "y0")
+
+
 def test_every_row_of_a_seed_sees_the_same_stream():
     def first_batches(seed):
         block, _ = continual.loaders_from_arrays(

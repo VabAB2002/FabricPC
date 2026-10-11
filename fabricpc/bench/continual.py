@@ -59,6 +59,7 @@ BLOCKS = 10
 BATCH_SIZE = 32
 TEST_BATCH_SIZE = 1000
 _MEAN, _STD = 0.2860, 0.3530  # Fashion-MNIST's, as FashionMnistLoader uses
+_PROBE_STREAM = 1_000_003  # random stream of the probe batch, apart from blocks
 
 
 def _task_of(labels: np.ndarray) -> np.ndarray:
@@ -106,6 +107,20 @@ class BlockLoader:
 
     def __len__(self):
         return -(-self._n // self._batch_size)
+
+    def probe_batch(self):
+        """One fixed batch, half task A and half task B, for the diagnostics
+        at the start and end of training and the safety net's probes. It
+        does not move the stream on; the first batch of the next pass would
+        be whichever task comes next."""
+        rng = np.random.default_rng((self._seed, _PROBE_STREAM))
+        half = self._batch_size // 2
+        xs, ys = [], []
+        for (tx, ty), size in zip(self._tasks, (half, self._batch_size - half)):
+            pick = rng.permutation(self._n)[:size]
+            xs.append(tx[pick])
+            ys.append(ty[pick])
+        return np.concatenate(xs), np.concatenate(ys)
 
     def __iter__(self):
         tx, ty = self._tasks[self.task_of_block(self.block)]
