@@ -29,7 +29,9 @@ from fabricpc.bench.registry import BenchmarkRow
 #    trials and summary carry eval_batches_capped; manifest carries git_dirty;
 #    contrasts carry p_holm, significant_holm_05, effect_size, hedges_gz
 # 5: manifest carries speed_test_ms, the machine's speed when the run started
-SCHEMA_VERSION = 5
+# 6: a two-row compare file carries holm_family, and its p_holm is NaN
+#    (uncorrected) unless both rows are in one family
+SCHEMA_VERSION = 6
 
 
 def _speed_test() -> Optional[float]:

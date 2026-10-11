@@ -18,9 +18,11 @@ def test_holm_never_goes_above_one_and_leaves_one_test_alone():
     assert holm([0.02]) == pytest.approx([0.02])
 
 
-def test_holm_passes_nan_through():
+def test_holm_counts_a_nan_as_a_test_that_found_nothing():
+    # A contrast that gave no p-value was still planned; dropping it from
+    # the count would make the others look stronger than they are.
     out = holm([0.01, float("nan")])
-    assert out[0] == pytest.approx(0.01)  # one real test left
+    assert out[0] == pytest.approx(0.02)  # two tests, not one
     assert math.isnan(out[1])
 
 

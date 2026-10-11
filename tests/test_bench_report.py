@@ -430,3 +430,57 @@ def test_a_long_curve_is_squeezed_to_twenty_characters(tmp_path):
     bars = next(w for line in page.splitlines() for w in line.split() if "▁" in w)
     assert len(bars) == 20
     assert "0.02 → 1.00" in page
+
+
+def test_holm_is_filled_in_per_compare_file_and_never_overwritten(tmp_path):
+    # A new family file already has the right Holm values; an older file
+    # for a second metric has none. Each file is its own family of tests.
+    fam = tmp_path / "cifar10-vgg5-fused"
+    _write_row(fam, "cifar10-vgg5-backprop", "backprop", acc=0.8673, se=0.0006)
+    _write_row(fam, "cifar10-vgg5-spc", "spc", acc=0.8444, se=0.0008)
+    new = {
+        "comparison": "cifar10-vgg5",
+        "metric": "accuracy",
+        "contrasts": [
+            {
+                "arm_a": "cifar10-vgg5-spc",
+                "arm_b": "cifar10-vgg5-backprop",
+                "mean_diff": -0.02,
+                "se_diff": 0.001,
+                "p_value": 0.0111,
+                "p_holm": 0.0456,
+                "n": 3,
+            },
+        ],
+    }
+    old = {
+        "comparison": "cifar10-vgg5",
+        "metric": "forward_accuracy",
+        "contrasts": [
+            {
+                "arm_a": "cifar10-vgg5-spc",
+                "arm_b": "cifar10-vgg5-backprop",
+                "mean_diff": -0.01,
+                "se_diff": 0.001,
+                "p_value": 0.0122,
+                "n": 3,
+            },
+            {
+                "arm_a": "cifar10-vgg5-epc",
+                "arm_b": "cifar10-vgg5-backprop",
+                "mean_diff": 0.001,
+                "se_diff": 0.001,
+                "p_value": 0.0300,
+                "n": 3,
+            },
+        ],
+    }
+    (fam / "compare-cifar10-vgg5.json").write_text(json.dumps(new))
+    (fam / "compare-cifar10-vgg5-forward_accuracy.json").write_text(json.dumps(old))
+
+    text = render(build_report(tmp_path), "md")
+
+    # Pooling all three would give 0.0333, 0.0366 and 0.0366.
+    assert "0.0456" in text  # kept as written
+    assert "0.0244" in text  # 0.0122 * 2, over its own file's two contrasts
+    assert "0.0366" not in text

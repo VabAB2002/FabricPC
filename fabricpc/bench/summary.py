@@ -211,11 +211,45 @@ class Contrast:
     cohens_d: float
     ci95_low: float = math.nan  # 95% t interval for mean_diff
     ci95_high: float = math.nan
-    p_holm: float = math.nan  # equals p_value: one test, nothing to correct
+    # Holm over the family's contrasts when both rows are in one family whose
+    # rows all have results (``holm_family`` names it); NaN otherwise, since
+    # a single pair on its own is not corrected for anything.
+    p_holm: float = math.nan
     significant_holm_05: bool = False
     effect_size: str = "d_z (paired)"  # what cohens_d is
     hedges_gz: float = math.nan  # d_z with Hedges' small-sample correction
+    holm_family: Optional[str] = None
     schema_version: int = SCHEMA_VERSION
+
+
+def _family_holm(results_dir, row_a, row_b, metric, p_value):
+    """``(p_holm, family id)`` for a pair inside a family, else ``(nan, None)``.
+
+    The pair's p-value is corrected together with the family's other planned
+    contrasts, each worked out the same way (two rows, paired on the seeds
+    both have). If any of them cannot be worked out, the p stays uncorrected.
+    """
+    from fabricpc.bench.compare import planned_results
+    from fabricpc.bench.registry import COMPARISONS
+    from fabricpc.bench.stats import holm
+
+    pair = {row_a, row_b}
+    for family in COMPARISONS.values():
+        if not any(set(c) == pair for c in family.contrasts):
+            continue
+        ps = [p_value]
+        try:
+            for a, b in family.contrasts:
+                if {a, b} == pair:
+                    continue
+                res = planned_results(
+                    results_dir, rows=(a, b), contrasts=((a, b),), metric=metric
+                )
+                ps.append(float(res.contrast_results()[0].p_value))
+        except (FileNotFoundError, ValueError):
+            return math.nan, None
+        return holm(ps)[0], family.id
+    return math.nan, None
 
 
 def compare_rows(results_dir, row_a: str, row_b: str, *, metric: str) -> Contrast:
@@ -246,6 +280,12 @@ def compare_rows(results_dir, row_a: str, row_b: str, *, metric: str) -> Contras
         ci95_high=high,
     )
     (extras,) = corrected([asdict(contrast)])
+    p_holm, family = _family_holm(
+        results_dir, row_a, row_b, metric, float(extras["p_value"])
+    )
+    extras.update(
+        p_holm=p_holm, significant_holm_05=bool(p_holm < 0.05), holm_family=family
+    )
     contrast = Contrast(**{k: extras[k] for k in asdict(contrast)})
     path = Path(results_dir) / f"compare-{row_a}-vs-{row_b}.json"
     path.write_text(json.dumps(asdict(contrast), indent=2))

@@ -469,18 +469,7 @@ def _family_blocks(folder: Path, row_dirs: list, root: Path) -> list:
     if contrasts:
         blocks.append(("h", 3, "Paired comparisons"))
         ctable = []
-        # Older compare files have no Holm-adjusted p-values; work them out
-        # over the contrasts shown here.
-        if any("p_holm" not in c for c in contrasts):
-            ps = [
-                (
-                    c.get("p_value")
-                    if isinstance(c.get("p_value"), (int, float))
-                    else math.nan
-                )
-                for c in contrasts
-            ]
-            contrasts = [{**c, "p_holm": h} for c, h in zip(contrasts, holm(ps))]
+        contrasts = _fill_in_holm(contrasts)
         arms = [c.get("arm_a") or "" for c in contrasts] + list(rows)
         mixed = len({_family_of(a) for a in arms}) > 1
         for c in contrasts:
@@ -524,6 +513,31 @@ def _family_blocks(folder: Path, row_dirs: list, root: Path) -> list:
         blocks.append(("p", "Skipped or partial:"))
         blocks.append(("list", all_notes))
     return blocks
+
+
+def _fill_in_holm(contrasts: list) -> list:
+    """Holm-adjusted p for contrasts whose compare file has none.
+
+    Each compare file is one family of tests, so the correction is worked
+    out within its file, never across files, and a value a file already
+    has is kept. A file holding a single pair gets none: one test alone
+    is not a Holm correction.
+    """
+    by_file: dict = {}
+    for c in contrasts:
+        if "p_holm" not in c:
+            by_file.setdefault(c.get("file") or "", []).append(c)
+    filled = {}
+    for group in by_file.values():
+        if len(group) < 2:
+            continue
+        ps = [
+            c["p_value"] if isinstance(c.get("p_value"), (int, float)) else math.nan
+            for c in group
+        ]
+        for c, h in zip(group, holm(ps)):
+            filled[id(c)] = h
+    return [{**c, "p_holm": filled[id(c)]} if id(c) in filled else c for c in contrasts]
 
 
 def _fmt_p(p):

@@ -180,6 +180,63 @@ def test_a_two_row_comparison_carries_the_same_extras_as_a_family(tmp_path):
 
     c = compare_rows(tmp_path, "a-mlp-spc", "a-mlp-epc", metric="accuracy")
 
-    assert c.p_holm == c.p_value  # one test, nothing to correct
     assert c.effect_size == "d_z (paired)"
     assert c.hedges_gz == pytest.approx(c.cohens_d * (1 - 3 / 7))
+
+
+def test_two_rows_outside_a_family_are_marked_uncorrected(tmp_path):
+    # One pair on its own is not a Holm correction; calling its plain p
+    # "Holm" would claim a correction that never happened.
+    write_trials(tmp_path, "a-mlp-spc", [0.90, 0.92, 0.94])
+    write_trials(tmp_path, "a-mlp-epc", [0.91, 0.92, 0.96], algorithm="epc")
+
+    c = compare_rows(tmp_path, "a-mlp-spc", "a-mlp-epc", metric="accuracy")
+
+    assert math.isnan(c.p_holm)
+    assert c.holm_family is None
+    assert c.significant_holm_05 is False
+
+
+def test_two_rows_of_a_family_are_corrected_over_the_familys_contrasts(tmp_path):
+    from fabricpc.bench.stats import holm
+
+    write_trials(tmp_path, "mnist-mlp-spc", [0.900, 0.910, 0.925, 0.931])
+    write_trials(
+        tmp_path, "mnist-mlp-epc", [0.905, 0.915, 0.921, 0.940], algorithm="epc"
+    )
+    write_trials(
+        tmp_path,
+        "mnist-mlp-backprop",
+        [0.902, 0.920, 0.922, 0.935],
+        algorithm="backprop",
+    )
+
+    c = compare_rows(tmp_path, "mnist-mlp-spc", "mnist-mlp-backprop", metric="accuracy")
+    others = [
+        compare_rows(tmp_path, a, b, metric="accuracy").p_value
+        for a, b in (
+            ("mnist-mlp-epc", "mnist-mlp-backprop"),
+            ("mnist-mlp-epc", "mnist-mlp-spc"),
+        )
+    ]
+
+    assert c.holm_family == "mnist-mlp"
+    assert c.p_holm == pytest.approx(holm([c.p_value, *others])[0])
+    assert c.p_holm >= c.p_value
+
+
+def test_the_compare_command_says_when_a_p_value_is_uncorrected(tmp_path, capsys):
+    # Two real rows from different families: no family to correct over.
+    from fabricpc.bench.__main__ import main
+
+    write_trials(tmp_path, "mnist-mlp-spc", [0.90, 0.92, 0.94])
+    write_trials(tmp_path, "fashionmnist-mlp-spc", [0.91, 0.92, 0.96])
+    assert (
+        main(
+            ["compare", "mnist-mlp-spc", "fashionmnist-mlp-spc", "--out", str(tmp_path)]
+        )
+        == 0
+    )
+    out = capsys.readouterr().out
+    assert "Holm" not in out
+    assert "uncorrected" in out

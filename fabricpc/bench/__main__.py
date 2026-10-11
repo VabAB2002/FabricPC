@@ -53,6 +53,7 @@ debugging; ``--trial i`` runs a single trial and is what each child does.
 
 import argparse
 import json
+import math
 import sys
 from dataclasses import asdict
 from pathlib import Path
@@ -304,13 +305,21 @@ def cmd_list() -> int:
 
 
 def _print_contrast(a, b, metric, c) -> None:
-    sig = "yes" if c["significant_holm_05"] else "no"
+    p_holm = c.get("p_holm", math.nan)
+    if p_holm == p_holm:  # not NaN
+        sig = "yes" if c["significant_holm_05"] else "no"
+        family = f" over {c['holm_family']}" if c.get("holm_family") else ""
+        p_text = f"p={c['p_value']:.3g}, Holm p={p_holm:.3g}{family}"
+        verdict = f"significant at 5% (Holm): {sig}"
+    else:
+        sig = "yes" if c["p_value"] < 0.05 else "no"
+        p_text = f"p={c['p_value']:.3g} (uncorrected: a single pair)"
+        verdict = f"significant at 5% (uncorrected): {sig}"
     print(
         f"{a} - {b} on {metric}: {c['mean_diff']:+.4f} "
         f"(se {c['se_diff']:.4f}, "
         f"95% CI [{c['ci95_low']:+.4f}, {c['ci95_high']:+.4f}], "
-        f"p={c['p_value']:.3g}, Holm p={c['p_holm']:.3g}, "
-        f"g_z={c['hedges_gz']:.2f}, n={c['n']}, significant at 5% (Holm): {sig})"
+        f"{p_text}, g_z={c['hedges_gz']:.2f}, n={c['n']}, {verdict})"
     )
 
 

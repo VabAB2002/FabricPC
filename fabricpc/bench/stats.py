@@ -18,11 +18,12 @@ from typing import List, Sequence
 
 
 def holm(p_values: Sequence[float]) -> List[float]:
-    """Holm-adjusted p-values, in the order given. NaN stays NaN and does
-    not count as a test."""
+    """Holm-adjusted p-values, in the order given. NaN stays NaN but still
+    counts as a test (one that found nothing, p = 1): it was planned, and
+    leaving it out would correct the others too little."""
     real = sorted((p, i) for i, p in enumerate(p_values) if not math.isnan(float(p)))
     adjusted = [float("nan")] * len(p_values)
-    m, running = len(real), 0.0
+    m, running = len(p_values), 0.0
     for rank, (p, i) in enumerate(real):
         running = max(running, min(1.0, (m - rank) * float(p)))
         adjusted[i] = running
