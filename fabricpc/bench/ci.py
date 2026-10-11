@@ -18,7 +18,6 @@ import math
 from typing import Sequence, Tuple
 
 import numpy as np
-from scipy import stats
 
 MIN_VALUES = 2
 LEVEL = 0.95
@@ -26,6 +25,10 @@ LEVEL = 0.95
 
 def t_critical(n: int) -> float:
     """The two-sided 95% Student t value for a mean of ``n`` values."""
+    # scipy is optional (the experiments extra); load it only when an
+    # interval is computed, so list and --dry-run work without it.
+    from scipy import stats
+
     return float(stats.t.ppf(0.5 + LEVEL / 2, n - 1))
 
 

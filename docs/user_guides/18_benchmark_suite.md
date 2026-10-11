@@ -4,6 +4,17 @@
 
 A **row** is one dataset, one model and one training algorithm, named `dataset-model-algorithm` (`cifar10-vgg5-spc`). A **family** is the three rows of one dataset and model (`cifar10-vgg5`), and it is compared as a unit.
 
+## Install
+
+The suite needs two of FabricPC's extras: `tfds` (the datasets and the BPE tokenizer) and `experiments` (scipy, for the confidence intervals and p-values). `list` and `--dry-run` work without them.
+
+```bash
+pip install -e ".[experiments,tfds]"            # CPU
+pip install -e ".[experiments,tfds,cuda12]"     # NVIDIA GPU
+```
+
+`.[all]` includes both. For a GPU server, see [Running on a GPU Server](19_running_on_a_gpu_server.md) for the exact pinned install.
+
 ## Quick start
 
 ```bash
@@ -167,13 +178,15 @@ It prints, per row, the step time, steps per epoch, time per seed and for all se
 On a shared GPU machine (a JupyterHub), `python -m fabricpc.bench queue <plan.json> --out DIR` works through a list of rows and families in order, with `--resume`, a `queue-status.json` after every job, and `validate` plus `report` at the end; `fabricpc/bench/plans/gpu_campaign.json` is the waiting GPU work, and `gpu_deep_vgg.json` holds VGG-7/9 until their layouts are signed off. Before paying for the hours:
 
 ```bash
-python -m fabricpc.bench doctor --out runs                                    # GPU visible? both CUDA plugins? datasets, disk, one step
+python -m fabricpc.bench doctor --out runs --expect-gpu                       # GPU visible (fails if not)? both CUDA plugins? datasets, disk, one step
 python -m fabricpc.bench queue fabricpc/bench/plans/gpu_campaign.json --validate-plan       # unknown ids, and jobs that get no pass/fail verdict
 python -m fabricpc.bench queue fabricpc/bench/plans/gpu_campaign.json --probe --out campaign  # time every row on this machine, train nothing
-python -m fabricpc.bench queue fabricpc/bench/plans/gpu_campaign.json --rehearse --out rehearsal  # every job for a step or two
+python -m fabricpc.bench queue fabricpc/bench/plans/gpu_campaign.json --rehearse --out rehearsal  # every job for 3 training steps
 ```
 
-`--validate-plan` warns about jobs that run fewer than 3 seeds or a shortened epoch count, since those get no verdict. `--probe` on its own times every row and prints the estimate; it never starts the campaign. `--rehearse` runs every job with 2 seeds, 3 real training steps whatever the dataset's size (`--max-train-steps 3`), and 2 test batches (`--max-eval-batches 2`), with the learning curve and the diagnostics on, so a missing dataset, a shape error, a diagnostics or curve bug or a zoo problem shows up on a laptop instead of on paid time. Its trials record `train_steps_capped` and `eval_batches_capped` and never get a verdict. See [Running on a GPU Server](19_running_on_a_gpu_server.md).
+`--expect-gpu` turns "JAX sees no GPU" from a warning into a failure: a broken CUDA install makes JAX fall back to the CPU with only a warning, and the campaign would then run for days on the CPU. Each trial's own error output, where that warning appears, is kept in `<out>/<row>/trial<i>.stderr.log`.
+
+`--validate-plan` warns about jobs that run fewer than 3 seeds or a shortened epoch count, since those get no verdict. `--probe` on its own times every row and prints the estimate; it never starts the campaign. `--rehearse` runs every job with 2 seeds, 3 real training steps whatever the dataset's size (`--max-train-steps 3`), and 2 test batches (`--max-eval-batches 2`), with the learning curve and the diagnostics on, so a missing dataset, a shape error, a diagnostics or curve bug or a zoo problem shows up before the paid time. Its trials record `train_steps_capped` and `eval_batches_capped` and never get a verdict. On a laptop CPU, rehearse only the small rows: with the diagnostics on, the VGG-size rows are slow there (a CPU rehearsal of just `mnist-mlp` and `cifar10-vgg5` ran for more than 10 minutes before it was stopped). On the GPU the whole plan is the point. See [Running on a GPU Server](19_running_on_a_gpu_server.md).
 
 ## Trend tracking
 
