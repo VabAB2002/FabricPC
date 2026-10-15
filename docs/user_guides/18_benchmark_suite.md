@@ -38,7 +38,7 @@ Results go under `--out` (default `results/`). `smoke` and `regress` write to `s
 | `--trials N` | seeds to run (default: the row's own, 10); overrides `--preset` |
 | `--preset fast\|standard` | 3 or 10 seeds |
 | `--epochs E` | shorten a run; a shortened run gets no pass/fail verdict |
-| `--resume` | skip trials that already finished with the same epoch count; refused when the folder already holds more trials than asked for, so finished seeds are never deleted |
+| `--resume` | skip trials that already finished with the same epoch count asked for and the same `--max-train-steps` / `--max-eval-batches` caps (a shortened trial is never reused for a full run, and the reverse); refused when the folder already holds more trials than asked for, so finished seeds are never deleted |
 | `--zoo DIR` | save each trial's trained weights (the model zoo) |
 | `--metric NAME` | metric for `compare` (default: the family's own) |
 | `--in-process` | run all trials in this process instead of one process each |

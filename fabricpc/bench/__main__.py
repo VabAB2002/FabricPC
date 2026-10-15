@@ -243,7 +243,14 @@ def _run_row(
     wanted_epochs = epochs if epochs is not None else row.train_config["num_epochs"]
     failed = 0
     for trial in range(n_trials):
-        if resume and finished_trial(out, row.id, trial, wanted_epochs):
+        if resume and finished_trial(
+            out,
+            row.id,
+            trial,
+            wanted_epochs,
+            max_train_steps=max_train_steps,
+            max_eval_batches=max_eval_batches,
+        ):
             print(f"{row.id} trial {trial}: already done, skipping")
             continue
         result = run_one(

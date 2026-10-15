@@ -718,3 +718,33 @@ def test_the_printed_lines_show_the_rows_own_score(
     assert trial_lines and all("energy=" in x for x in trial_lines)
     assert not any("accuracy=" in x for x in trial_lines)
     assert any(x.startswith("tiny-mlp-spc: energy ") for x in lines)
+
+
+def test_resume_skips_a_finished_trial_of_a_shortened_run(
+    tmp_path, monkeypatch, rng_key
+):
+    # A shortened trial records the epochs it really trained (here 2 steps,
+    # a fraction of an epoch), so resume compared that with the epochs asked
+    # for and trained every finished trial again (seen on a Colab rehearsal).
+    register_tiny_row(monkeypatch, rng_key)
+    caps = ["--max-train-steps", "2", "--max-eval-batches", "1"]
+    assert main(_tiny_args(tmp_path, *caps)) == 0
+    (tmp_path / "tiny-mlp-spc" / "trial1.json").unlink()
+
+    ran = _count_trial_runs(monkeypatch)
+    assert main(_tiny_args(tmp_path, "--resume", *caps)) == 0
+
+    assert ran == [1]
+
+
+def test_resume_does_not_reuse_a_trial_scored_on_part_of_the_test_set(
+    tmp_path, monkeypatch, rng_key
+):
+    register_tiny_row(monkeypatch, rng_key)
+    assert main(_tiny_args(tmp_path, "--max-eval-batches", "1")) == 0
+
+    ran = _count_trial_runs(monkeypatch)
+    assert main(_tiny_args(tmp_path, "--resume")) == 0
+
+    # Same epochs, but the old scores came from one test batch only.
+    assert ran == [0, 1]

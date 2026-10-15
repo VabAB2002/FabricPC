@@ -34,7 +34,9 @@ from fabricpc.bench.registry import BenchmarkRow
 #    timing_version (measure.TIMING_VERSION) and safety_net_s
 # 7: trial compute carries xla_flops_per_update, xla_flops_per_update_backprop
 #    and xla_pc_to_backprop_ratio; achieved_tflops uses XLA's count
-SCHEMA_VERSION = 7
+# 8: trials carry requested_epochs, the epochs asked for before
+#    max_train_steps cut them (num_epochs is what was trained)
+SCHEMA_VERSION = 8
 
 
 def _speed_test() -> Optional[float]:

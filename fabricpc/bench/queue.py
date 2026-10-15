@@ -158,8 +158,15 @@ def job_argv(
     return argv + list(extra)
 
 
-def _all_trials_finished(job: Job, out) -> bool:
-    """True when every row of the job has every trial finished and good."""
+def _cap(argv: Sequence[str], flag: str) -> Optional[int]:
+    """The value of ``flag`` in ``argv`` as an int, or None if absent."""
+    argv = list(argv)
+    return int(argv[argv.index(flag) + 1]) if flag in argv else None
+
+
+def _all_trials_finished(job: Job, out, extra_argv: Sequence[str] = ()) -> bool:
+    """True when every row of the job has every trial finished and good.
+    ``extra_argv`` carries a rehearsal's caps, which the trials must match."""
     from fabricpc.bench.registry import ROWS
     from fabricpc.bench.runner import finished_trial
 
@@ -170,7 +177,13 @@ def _all_trials_finished(job: Job, out) -> bool:
         epochs = (
             job.epochs if job.epochs is not None else row.train_config["num_epochs"]
         )
-        if not all(finished_trial(folder, row_id, t, epochs) for t in range(trials)):
+        caps = {
+            "max_train_steps": _cap(extra_argv, "--max-train-steps"),
+            "max_eval_batches": _cap(extra_argv, "--max-eval-batches"),
+        }
+        if not all(
+            finished_trial(folder, row_id, t, epochs, **caps) for t in range(trials)
+        ):
             return False
     return True
 
@@ -242,7 +255,7 @@ def _run_one(job: Job, entry: dict, out, run_main: RunMain, argv_opts) -> bool:
     entry["ended"] = _now()
     if code == 0:
         entry["status"] = "done"
-    elif code is not None and _all_trials_finished(job, out):
+    elif code is not None and _all_trials_finished(job, out, argv_opts["extra"]):
         entry["status"] = "done"
         entry["message"] = (
             f"exit code {code}, but every trial finished; most likely a "

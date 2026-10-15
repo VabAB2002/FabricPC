@@ -554,3 +554,40 @@ def test_rehearse_runs_every_job_tiny_and_capped(tmp_path):
         assert "--fast" not in argv
         assert int(argv[argv.index("--max-eval-batches") + 1]) <= 4
         assert "--zoo" in argv  # the zoo path is rehearsed too
+
+
+def test_a_rehearsal_with_every_trial_finished_counts_as_done(tmp_path):
+    # Rehearsal trials are cut to a few steps, so they record a fraction of
+    # an epoch; the queue must still see that they finished.
+    out = tmp_path / "out"
+    plan = queue.load_plan(
+        write_plan(tmp_path, [{"id": "mnist-mlp-spc", "trials": 2, "epochs": 1}])
+    )
+
+    def band_fail(argv):
+        row_dir = out / "mnist-mlp-spc" / "mnist-mlp-spc"
+        row_dir.mkdir(parents=True, exist_ok=True)
+        for t in range(2):
+            (row_dir / f"trial{t}.json").write_text(
+                json.dumps(
+                    {
+                        "status": "ok",
+                        "num_epochs": 0.01,
+                        "requested_epochs": 1.0,
+                        "train_steps_capped": queue.REHEARSE_STEPS,
+                        "eval_batches_capped": queue.REHEARSE_EVAL_BATCHES,
+                    }
+                )
+            )
+        return 1
+
+    code = queue.run_queue(
+        plan,
+        out,
+        run_main=band_fail,
+        finish=False,
+        extra_argv=queue.REHEARSE_ARGV,
+    )
+
+    assert code == 0
+    assert read_status(out)["jobs"][0]["status"] == "done"

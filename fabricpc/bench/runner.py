@@ -198,7 +198,10 @@ class TrialResult:
     epc_regime: Optional[Dict[str, Dict[str, object]]] = None
     # Rows with rate_control: the controller's summary and every probe
     rate_control: Optional[Dict[str, object]] = None
-    num_epochs: float = 0.0
+    num_epochs: float = 0.0  # what was trained, after max_train_steps
+    # What was asked for, before max_train_steps cut it; --resume matches
+    # on this (None in files written before it was recorded).
+    requested_epochs: Optional[float] = None
     compute: Dict[str, float] = field(default_factory=dict)
     achieved_tflops: float = 0.0  # flops per update / measured step time
     checkpoint: Optional[str] = None  # zoo path of the trained params
@@ -251,6 +254,7 @@ def run_trial(
     epochs = float(
         num_epochs if num_epochs is not None else row.train_config["num_epochs"]
     )
+    requested_epochs = epochs
 
     try:
         # Split the seed exactly as PlannedMultiContrastExperiment does, so a
@@ -445,6 +449,7 @@ def run_trial(
             ),
             curve=curve.points if curve.enabled else None,
             num_epochs=epochs,
+            requested_epochs=requested_epochs,
             compute=compute,
             achieved_tflops=achieved_tflops,
             checkpoint=checkpoint,
@@ -460,6 +465,7 @@ def run_trial(
             algorithm=row.algorithm,
             n_params=0,
             num_epochs=epochs,
+            requested_epochs=requested_epochs,
             eval_batches_capped=max_eval_batches,
             train_steps_capped=max_train_steps,
             status="failed",
@@ -471,15 +477,32 @@ def run_trial(
     return result
 
 
-def finished_trial(out_dir, row_id: str, trial: int, num_epochs: float) -> bool:
-    """True when ``trial<i>.json`` holds a good result for this epoch count.
+def finished_trial(
+    out_dir,
+    row_id: str,
+    trial: int,
+    num_epochs: float,
+    *,
+    max_train_steps: Optional[int] = None,
+    max_eval_batches: Optional[int] = None,
+) -> bool:
+    """True when ``trial<i>.json`` holds a good result for this run.
 
-    Used by ``--resume``. A failed trial, a missing or broken file, or one
-    trained for a different number of epochs does not count as finished.
+    Used by ``--resume``. A failed trial, a missing or broken file, one
+    asked for a different number of epochs, or one cut to a different
+    number of training steps or test batches does not count as finished.
+    A shortened trial trains only part of an epoch, so the epochs it was
+    asked for are compared, not the epochs it trained.
     """
     path = Path(out_dir) / row_id / f"trial{trial}.json"
     try:
         saved = json.loads(path.read_text())
     except (OSError, ValueError):
         return False
-    return saved.get("status") == "ok" and saved.get("num_epochs") == float(num_epochs)
+    asked = saved.get("requested_epochs", saved.get("num_epochs"))
+    return (
+        saved.get("status") == "ok"
+        and asked == float(num_epochs)
+        and saved.get("train_steps_capped") == max_train_steps
+        and saved.get("eval_batches_capped") == max_eval_batches
+    )
