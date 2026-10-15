@@ -104,3 +104,23 @@ def test_a_bad_margin_is_refused(tmp_path, margin):
         compare_family(
             tmp_path, COMPARISONS["mnist-mlp"], metric="accuracy", margin=margin
         )
+
+
+def test_the_report_says_whether_each_contrast_was_shown_equivalent(tmp_path):
+    from fabricpc.bench.report import run_report
+
+    base = [0.90, 0.91, 0.92, 0.93, 0.94]
+    for algo, noise in (
+        ("backprop", [0.0] * 5),
+        ("spc", [0.001, -0.001, 0.0, 0.0005, -0.0005]),
+        ("epc", [0.03, -0.03, 0.02, -0.02, 0.0]),
+    ):
+        accuracies = [b + d for b, d in zip(base, noise)]
+        _write(tmp_path, f"mnist-mlp-{algo}", algo, [None] * 5, accuracies)
+    compare_family(tmp_path, COMPARISONS["mnist-mlp"], metric="accuracy")
+
+    page = run_report(tmp_path)
+
+    assert "equivalent at 5%? (TOST)" in page
+    assert "yes, within ±0.005" in page
+    assert "not shown at ±0.005" in page

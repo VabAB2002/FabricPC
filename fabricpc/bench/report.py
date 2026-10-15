@@ -342,6 +342,14 @@ def _pick_metric(row: dict, wanted):
     return next(iter(sorted(row["stats"])), None)
 
 
+def _equivalence_cell(c: dict) -> str:
+    """Whether a contrast showed the two rows match within its margin."""
+    margin, same = c.get("equivalence_margin"), c.get("equivalent_holm_05")
+    if not margin or same is None:
+        return "-"
+    return f"yes, within ±{margin:g}" if same else f"not shown at ±{margin:g}"
+
+
 def load_compares(family_dir: Path, notes: list) -> list:
     """Every contrast in the folder's compare-*.json files, old or new shape."""
     found = []
@@ -352,7 +360,14 @@ def load_compares(family_dir: Path, notes: list) -> list:
         if "contrasts" in data:  # a whole family: several contrasts
             for c in data.get("contrasts") or []:
                 if isinstance(c, dict):
-                    found.append({**c, "metric": data.get("metric"), "file": path.name})
+                    found.append(
+                        {
+                            **c,
+                            "metric": data.get("metric"),
+                            "equivalence_margin": data.get("equivalence_margin"),
+                            "file": path.name,
+                        }
+                    )
         elif "row_a" in data:  # older, one pair per file
             found.append(
                 {
@@ -516,11 +531,13 @@ def _family_blocks(folder: Path, row_dirs: list, root: Path) -> list:
                     f"{g:+.2f}" if isinstance(g, (int, float)) and g == g else "-",
                     str(c.get("n", "-")),
                     words.get(sig, "-"),
+                    _equivalence_cell(c),
                 ]
             )
         head = ["difference (a - b)", "metric", "mean diff", "95% CI of diff"]
         head += ["p-value", "Holm p", "effect (Hedges g_z)", "pairs"]
-        blocks.append(("table", head + ["significant at 5%?"], ctable))
+        head += ["significant at 5%?", "equivalent at 5%? (TOST)"]
+        blocks.append(("table", head, ctable))
     blocks += _provenance_blocks(rows)
     blocks += _notes_blocks(folder, root)
     all_notes = notes + [f"{r['id']}: {n}" for r in rows.values() for n in r["notes"]]
