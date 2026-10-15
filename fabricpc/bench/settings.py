@@ -62,6 +62,9 @@ def check_settings(row: BenchmarkRow, settings: Mapping[str, float]) -> None:
     for name, value in settings.items():
         if not float(value) > 0:
             raise ValueError(f"{name} must be above 0, got {value}")
+    steps = settings.get("infer_steps")
+    if steps is not None and float(steps) != int(float(steps)):
+        raise ValueError(f"infer_steps must be a whole number, got {steps}")
 
 
 def apply_settings(row: BenchmarkRow, settings: Mapping[str, float]) -> BenchmarkRow:

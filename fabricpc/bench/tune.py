@@ -92,9 +92,12 @@ def parse_space(texts: List[str]) -> Dict[str, Range]:
             raise ValueError(f"--space {text!r}: expected name=low:high[:lin]")
         if scale not in ("log", "lin") or not 0 < low < high:
             raise ValueError(f"--space {text!r}: need 0 < low < high, scale log or lin")
-        space[name] = Range(
-            low, high, log=scale == "log", integer=name == "infer_steps"
-        )
+        integer = name == "infer_steps"
+        if integer and (low != int(low) or high != int(high) or low < 1):
+            raise ValueError(
+                f"--space {text!r}: infer_steps needs whole numbers, 1 or more"
+            )
+        space[name] = Range(low, high, log=scale == "log", integer=integer)
     return space
 
 
@@ -151,6 +154,12 @@ def tune_row(
     lower = lower_is_better(row.metric)
     out_dir = Path(out_dir)
     tries_dir = out_dir / row.id
+    if any((tries_dir / name).exists() for name in ("manifest.json", "summary.json")):
+        # Tries are written as trial<n>.json and would replace a real run's.
+        raise ValueError(
+            f"{out_dir} holds benchmark results for {row.id}; "
+            "tune into a folder of its own (--out, default 'tuned')"
+        )
     tries_dir.mkdir(parents=True, exist_ok=True)
 
     optuna.logging.set_verbosity(optuna.logging.WARNING)

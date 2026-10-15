@@ -250,3 +250,26 @@ def test_the_tune_command_then_a_run_with_its_settings(tmp_path, monkeypatch, rn
     assert main(_run_args(tmp_path / "run", "--settings", str(tuned))) == 0
     trial = json.loads((tmp_path / "run" / "tiny-mlp-spc" / "trial0.json").read_text())
     assert trial["settings"] == pytest.approx(best)
+
+
+@pytest.mark.parametrize("value", [0.5, 0, 2.5])
+def test_infer_steps_must_be_a_whole_number_of_at_least_one(value):
+    with pytest.raises(ValueError, match="infer_steps"):
+        apply_settings(ROWS["mnist-mlp-spc"], {"infer_steps": value})
+
+
+def test_a_steps_range_must_be_whole_numbers_of_at_least_one():
+    with pytest.raises(ValueError, match="infer_steps"):
+        parse_space(["infer_steps=0.5:4"])
+
+
+def test_tune_never_writes_into_a_folder_of_benchmark_results(
+    tmp_path, monkeypatch, rng_key
+):
+    # Tries are written as trial<n>.json, which would replace a real run's.
+    register_tiny_rows(monkeypatch, rng_key)
+    (tmp_path / "tiny-mlp-spc").mkdir()
+    (tmp_path / "tiny-mlp-spc" / "manifest.json").write_text("{}")
+
+    with pytest.raises(ValueError, match="benchmark results"):
+        tune_row(registry.ROWS["tiny-mlp-spc"], tmp_path, budget=1, epochs=1)
