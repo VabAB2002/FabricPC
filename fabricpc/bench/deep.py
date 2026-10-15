@@ -43,6 +43,7 @@ from typing import Dict, Optional
 import jax
 import optax
 
+from fabricpc.bench.methods import DISPLAY_ORDER
 from fabricpc.core.activations import (
     SoftmaxActivation,
     TanhActivation,
@@ -161,6 +162,9 @@ def fcresnet_depth_family(depths=DEPTHS) -> Dict[str, object]:
                 algorithm=algo,
                 model_factory=_model_factory(algo, depth),
                 loader_factory=_flat_image_loaders("mnist", BATCH_SIZE),
+                tune_loader_factory=_flat_image_loaders(
+                    "mnist", BATCH_SIZE, tuning=True
+                ),
                 optimizer_factory=_optimizer,
                 train_config={"num_epochs": NUM_EPOCHS},
                 batch_size=BATCH_SIZE,
@@ -209,7 +213,7 @@ def depth_table(loaded_rows):
     and a 1-seed check on a laptop) get a line each, with a folder column,
     so one never hides the other. Each cell shows its seed count when known.
     """
-    methods = ("backprop", "spc", "epc")
+    methods = DISPLAY_ORDER
     cells = {}
     for row in loaded_rows:
         depth = depth_of(row["id"])

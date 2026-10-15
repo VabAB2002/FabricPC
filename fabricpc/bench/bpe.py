@@ -135,9 +135,11 @@ def _model_factory(algorithm: str):
     return build
 
 
-def _loaders(batch_size: int, seq_len: int):
+def _loaders(batch_size: int, seq_len: int, *, tuning: bool = False):
     """BPE loaders for one trial. The first call trains the tokenizer and
-    encodes the splits into ``bpe_cache_dir()``; later calls just load."""
+    encodes the splits into ``bpe_cache_dir()``; later calls just load.
+    ``tuning`` scores on Tiny Shakespeare's validation split, not test."""
+    eval_split = "validation" if tuning else "test"
 
     def build(seed: int):
         from fabricpc.utils.data import dataloader
@@ -151,7 +153,7 @@ def _loaders(batch_size: int, seq_len: int):
             "verbose": False,
         }
         train = dataloader.BpeDataLoader("train", shuffle=True, seed=seed, **shared)
-        test = dataloader.BpeDataLoader("test", shuffle=False, **shared)
+        test = dataloader.BpeDataLoader(eval_split, shuffle=False, **shared)
         # The graph is built before the loaders, so a cache made with another
         # vocabulary would feed ids the output layer does not have.
         for loader in (train, test):
@@ -181,6 +183,7 @@ def tinyshakespeare_bpe_transformer_family() -> Dict[str, object]:
             algorithm=algo,
             model_factory=_model_factory(algo),
             loader_factory=_loaders(c["batch_size"], c["seq_len"]),
+            tune_loader_factory=_loaders(c["batch_size"], c["seq_len"], tuning=True),
             optimizer_factory=_optimizer,
             train_config={"num_epochs": c["num_epochs"]},
             batch_size=c["batch_size"],

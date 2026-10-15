@@ -36,12 +36,13 @@ import re
 import statistics
 from pathlib import Path
 
+from fabricpc.bench.methods import DISPLAY_ORDER
 from fabricpc.bench.stats import holm
 from fabricpc.bench.summary import regime_summary
 
 ROW_FILES = ("summary.json", "manifest.json", "trials.csv")
 SKIP_DIRS = {"zoo", "__pycache__"}
-ALGORITHMS = ("backprop", "spc", "epc")
+ALGORITHMS = DISPLAY_ORDER  # baseline first
 NOTES_MAX_LINES = 60
 BAND_WORDS = {
     "pass": "PASS",

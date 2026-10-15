@@ -25,6 +25,8 @@ python -m fabricpc.bench mnist-mlp-spc                 # one row, 10 seeds (the 
 python -m fabricpc.bench mnist-mlp-spc --preset fast   # one row, 3 seeds
 python -m fabricpc.bench mnist-mlp --trials 5          # a family: all three rows, 5 seeds each, then compare
 python -m fabricpc.bench compare mnist-mlp             # compare results already on disk
+python -m fabricpc.bench tune mnist-mlp --budget 20    # tune each row's settings on held-out training data
+python -m fabricpc.bench mnist-mlp --settings tuned    # run the family with the tuned settings
 python -m fabricpc.bench validate results              # check a results folder is whole
 python -m fabricpc.bench report results --out report.md  # one readable page for a results folder
 python -m fabricpc.bench smoke                         # the short run CI uses (into smoke-results/)
@@ -42,6 +44,8 @@ Results go under `--out` (default `results/`). `smoke` and `regress` write to `s
 | `--zoo DIR` | save each trial's trained weights (the model zoo) |
 | `--metric NAME` | metric for `compare` (default: the family's own) |
 | `--in-process` | run all trials in this process instead of one process each |
+| `--settings PATH` | run with tuned settings: a file `tune` wrote, or its output folder (each row reads `<row id>.json`; a row with no file runs as written) |
+| `--set NAME=VALUE` | change one setting for this run (`lr_scale`, `eta_infer`, `infer_steps`); repeatable, applied after `--settings`. On a family, `eta_infer` and `infer_steps` change the PC rows only |
 
 ## What a run writes
 
@@ -171,6 +175,25 @@ python -m fabricpc.bench probe cifar10-vgg5-spc --trials 5 --epochs 50 --price-p
 
 It prints, per row, the step time, steps per epoch, time per seed and for all seeds, and the family total with its cost (hours times `--price-per-hour`, default 1.06 USD, what a Lightning T4 cost us). `--trials` and `--epochs` default to the row's own; `--warmup` and `--timed` set how many steps are timed (default 2 and 10). With `--out DIR` it also writes `probe-<row-or-family>.json` there. The numbers only hold for the device they were measured on, which the report names, so probe on the machine you will pay for. It also times what a real trial adds on top of training: the diagnostics at the start and end (and the ePC regime), left out with `--fast` or `--no-diagnostics` as in a real run, and the safety net's stiffness probes, one every `every` updates. It leaves out process start-up and the recompile when the safety net changes the rate, so treat it as a floor. Estimates made before 2026-10-10 timed a heavier step than training runs (sPC about twice too slow) and left the extras out: probe again on the GPU before trusting them.
 
+## Tuning a row's settings
+
+The rows' settings come from demos and from pcx and were not tuned for this suite, and a method trained with another method's settings is at a disadvantage. `tune` searches them with Optuna:
+
+```bash
+python -m fabricpc.bench tune mnist-mlp --budget 20 --out tuned        # each row of the family, 20 tries each
+python -m fabricpc.bench tune cifar10-vgg5-spc --budget 30 --epochs 5  # one row, shorter tries
+python -m fabricpc.bench mnist-mlp --settings tuned                    # a normal 10-seed run with what was found
+```
+
+- **What is searched.** `lr_scale` on every row: it multiplies the optimizer's update, which for the optax optimizers the rows use is the same as multiplying the learning rate, schedule and all (weight decay included, as in AdamW). On PC rows also `eta_infer`, the settle's step size, and `infer_steps`, the settle steps per batch. Default ranges sit around the row's own values: `lr_scale` 0.1 to 10, `eta_infer` a tenth to ten times the row's, `infer_steps` half to twice the row's. `--space eta_infer=1e-4:1e-1` replaces a range (log scale; add `:lin` for a linear one). The row's own settings are always the first try, so tuning can keep them but never do worse on the tuning data.
+- **What it is scored on.** Each try is a normal training run of the row (the same code a benchmark run uses, safety net included) on 90% of the training set, scored with the row's own metric on the other 10% (`train[90%:]`; the text rows use Tiny Shakespeare's own validation split). The test set is never read, so the benchmark score of a tuned row is not inflated by the tuning. Every try trains from the same seed (`--seed`, default 0), so tries differ only in their settings. A try that fails, or scores NaN, is dropped and recorded.
+- **Fair between methods.** A family is tuned row by row with the same budget, seed and held-out data. Tuned rows can end up with different learning rates; each method then runs with its own best settings for the same search effort, where the untuned rows share one optimizer.
+- **Finding an ePC that really settles.** Default ePC trains like backprop (settled fraction near 0). `tune mnist-mlp-epc --min-settled 0.5` keeps only settings whose settled fraction ends at 0.5 or above; on a family it tunes the ePC row only. Run the result into its own `--out`, since it has the same row id as the default ePC row.
+- **Cost.** A try costs one training run of the row, without timing, FLOP counting or diagnostics. `--epochs` and `--max-train-steps` shorten the tries; short tries favour settings that learn fast, so check the winner with a full run.
+- **Output.** `tuned/<row id>.json` holds the best settings, the score on the held-out data, the row's own score there, the ranges, budget, seed and commit. `tuned/<row id>/study.json` lists every try. A run with `--settings` records the settings in the manifest and in every trial (`settings`), and `--resume` never reuses a trial that ran with other settings.
+
+Rows that cannot be tuned yet, because their loaders have no held-out split: `tinyimagenet-vgg5`, `fashionmnist-continual`, `patterns64-hopfield`. A row becomes tunable by giving it a `tune_loader_factory` (see Adding a row).
+
 ## Running on a GPU in the cloud
 
 `scripts/lightning/make_job.sh` builds the command for a Lightning AI job that runs one benchmark at a pinned commit with `--zoo`, and `scripts/lightning/fetch_results.sh` brings the results back and runs `validate`. Long runs can be split across jobs with `--resume`.
@@ -248,9 +271,21 @@ So sPC learns each new block more and also loses more of the other task; relativ
 
 `python -m fabricpc.bench cycles --out DIR` measures issue #64: on two looped MNIST graphs, how much a settle costs (matmuls per sample, time) to land within 1% of the true energy (sPC settled for 2000 steps), when unrolling the loop and relaxing with ePC, when relaxing one visit with ePC and refining with sPC, and with plain sPC. It writes `cycles.json` and `cycles.md`. `--epochs` sets the training of the weights first (default 1) and `--max-eval-batches` the test batches settled (default 5). First runs are in `docs/reports/cycles_refine_vs_unroll.md`. They do not pick a default yet: the cheapest arm changed with the trained weights (unrolling alone with 1-epoch weights, unroll 2 plus a short sPC refinement with 0.25-epoch weights), and one visit never lands.
 
+## Adding your own model
+
+A new model joins the suite through `fabricpc.bench.recipe.pc_family`: give it a function that builds the graph for a given settling solver, the solver each PC method uses, the data, the optimizer, and the epochs. It returns one row per method (`<dataset>-<model>-spc`, `-epc`, `-backprop`) that share the graph, the starting weights for a seed, the data order and the optimizer, so the comparison is fair by construction. `fabricpc.bench.registry.register_family(rows)` adds them to the suite. `examples/bench_add_your_model.py` is a complete example, a 784-512-10 MLP on MNIST:
+
+```bash
+FABRICPC_BENCH_ROWS=examples/bench_add_your_model.py python -m fabricpc.bench list
+FABRICPC_BENCH_ROWS=examples/bench_add_your_model.py python -m fabricpc.bench mnist-wide-mlp --preset fast
+FABRICPC_BENCH_ROWS=examples/bench_add_your_model.py python -m fabricpc.bench tune mnist-wide-mlp --budget 10
+```
+
+`FABRICPC_BENCH_ROWS` names Python files or importable modules (comma-separated) that are imported before the command runs; `--rows-module FILE` does the same for one command. Child trial processes inherit the variable, so they find the same rows. Your rows then get everything the built-in ones get: seeds and pairing, timing and FLOPs, the settled fraction, tuning (when you give `tune_loader_factory`; `recipe.flat_image_loaders` and `recipe.cifar10_loaders` take `tuning=True`), compare with Holm and equivalence, the report and the model zoo. The methods themselves are listed once, in `fabricpc/bench/methods.py`; a family may use any two or more of them (`methods=("spc", "backprop")`), and its contrasts follow: each settling method against backprop, then the settling methods against each other.
+
 ## Adding a row
 
-Rows live in `fabricpc/bench/registry.py` as frozen `BenchmarkRow`s: a model factory `(rng_key) -> (params, structure)`, a loader factory `(seed) -> (train, test)`, an optimizer factory `(total_steps) -> optax transform` (so learning-rate schedules can see the run length), the training config, the batch size, and optionally an expected score and the row's main metric. All three rows of a family must build the same graph and differ only in the solver.
+Rows live in `fabricpc/bench/registry.py` as frozen `BenchmarkRow`s: a model factory `(rng_key) -> (params, structure)`, a loader factory `(seed) -> (train, test)`, an optimizer factory `(total_steps) -> optax transform` (so learning-rate schedules can see the run length), the training config, the batch size, and optionally an expected score and the row's main metric. Give it a `tune_loader_factory` too, the same as its loader factory but training on `fabricpc.bench.splits.TUNE_TRAIN_SPLIT` and scoring on `TUNE_HOLDOUT_SPLIT`, so `tune` can tune it without touching the test set. All three rows of a family must build the same graph and differ only in the solver.
 
 A family can also live in its own module and be added to `ROWS` with one line; `fabricpc/bench/cifar100.py` does this for `cifar100-vgg5`, the CIFAR-10 VGG-5 recipe with 100 classes and pcx's CIFAR-100 settings (12 settling steps, hard tanh; pcx's PC-CE weight settings, rate 2.2e-4 and decay 7.6e-3, for all three rows). Every family trains its three rows with one optimizer, as `examples/PC_backprop_compare.py` does, so a difference between them comes from the learning rule alone; a test checks this for every family. pcx tuned its backprop separately, so our backprop rows on CIFAR-100 and Tiny-ImageNet may score a little below pcx's. Results made before 2026-10-11 for `cifar100-vgg5-backprop` used pcx's separate backprop settings (rate 2.1e-4, decay 2.2e-5). pcx's best VGG-5 CIFAR-100 score is 67.19% (centered nudging, which we do not run); its PC-CE and backprop cross-entropy runs score 60.00% and 60.82%. The rows have no expected score until their first full run.
 

@@ -38,6 +38,7 @@ from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Callable, Optional, Sequence, Tuple
 
+from fabricpc.bench.methods import ALGORITHMS
 from fabricpc.bench.report import run_report
 from fabricpc.bench.writer import validate
 
@@ -69,7 +70,7 @@ class Verdict:
 MLP_FLOOR = 0.85
 AUTOENCODER_CEILING = 0.055
 HOPFIELD_LIFT_FLOOR = 0.10
-ALGOS = ("spc", "epc", "backprop")
+ALGOS = ALGORITHMS
 
 CI_CHECKS: Tuple[Check, ...] = (
     *(Check(f"mnist-mlp-{a}", "accuracy", MLP_FLOOR, True, 0.5) for a in ALGOS),

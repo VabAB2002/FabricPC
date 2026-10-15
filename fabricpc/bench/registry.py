@@ -5,7 +5,7 @@ family (same dataset and model) share a graph so the algorithms can be
 compared on equal footing. Row ids look like ``mnist-mlp-spc``.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Mapping, Optional, Tuple
 
 import jax
@@ -14,6 +14,9 @@ import optax
 from fabricpc.bench.bpe import tinyshakespeare_bpe_transformer_family
 from fabricpc.bench.cifar100 import cifar100_vgg5_family
 from fabricpc.bench.deep import fcresnet_depth_family
+from fabricpc.bench.methods import ALGORITHMS as _METHOD_NAMES
+from fabricpc.bench.methods import METHODS, split_row_id
+from fabricpc.bench.splits import splits
 from fabricpc.bench.tinyimagenet import tinyimagenet_vgg5_family
 from fabricpc.core.activations import (
     GeluActivation,
@@ -33,8 +36,8 @@ from fabricpc.models import build_resnet18, create_deep_transformer, create_vgg
 from fabricpc.nodes import IdentityNode, Linear
 from fabricpc.training import metrics as training_metrics
 
-# The three ways we can train the same graph.
-ALGORITHMS: Tuple[str, ...] = ("spc", "epc", "backprop")
+# The ways we can train the same graph (fabricpc.bench.methods).
+ALGORITHMS: Tuple[str, ...] = _METHOD_NAMES
 
 # Seeds per row. The mentor's guidance (2026-09-29): about 10 is good, 3 is
 # the minimum. --preset picks one of these; --trials N overrides both.
@@ -77,22 +80,17 @@ class RateControl:
 
 # The safety net every PC row trains with: the inference rate shrinks only
 # when a run nears the settle's stability limit, eta * stiffness = 2
-# (fabricpc.training.InferenceRateController). Where it acts comes from the
-# end-of-training values of our own runs: ePC rows were healthy at 0.07 or
-# below (MNIST, Fashion-MNIST, VGG-5) and broke at 3 to 15 (the autoencoder,
-# 3 of 5 seeds); sPC rows were healthy up to 1.7 (Fashion-MNIST 1.6, VGG-5
-# 1.0 to 1.7) and degraded above 2 (autoencoder 1.9 to 2.4, the transformer
-# about 650). So ePC acts at 1.0 and sPC at 1.8, and runs that were healthy
-# train as before. Probing every 50 updates adds roughly a tenth to the
-# training time.
-_SAFETY_TARGET = {"epc": 1.0, "spc": 1.8}
+# (fabricpc.training.InferenceRateController). Where it acts is each
+# method's safety_target (fabricpc.bench.methods, with where the values come
+# from). Probing every 50 updates adds roughly a tenth to the training time.
 _SAFETY_EVERY = 50
 
 
 def _safety_net(algorithm: str) -> Optional["RateControl"]:
-    if algorithm not in _SAFETY_TARGET:
+    target = METHODS[algorithm].safety_target
+    if target is None:
         return None
-    return RateControl(target=_SAFETY_TARGET[algorithm], every=_SAFETY_EVERY)
+    return RateControl(target=target, every=_SAFETY_EVERY)
 
 
 @dataclass(frozen=True)
@@ -123,6 +121,12 @@ class BenchmarkRow:
     # continual-learning run forgot): numbers worked out from the learning
     # curve and added to the trial's metrics. Needs the curve on.
     curve_summary: Optional[Callable[[List[Dict[str, float]]], Dict[str, float]]] = None
+    # Loaders for tuning: (most of the training set, the part held back to
+    # score on), never the test set. None: the row cannot be tuned yet.
+    tune_loader_factory: Optional[LoaderFactory] = None
+    # Settings changed from the row's own (fabricpc.bench.settings): empty
+    # when the row runs as written.
+    settings: Mapping[str, float] = field(default_factory=dict)
 
     def metrics_for(self, trainer_algorithm: str):
         """What to pass as ``evaluate(..., metrics=)``: None means its
@@ -187,11 +191,15 @@ def _mnist_mlp_factory(algorithm: str) -> ModelFactory:
     return build
 
 
-def _flat_image_loaders(dataset: str, batch_size: int) -> LoaderFactory:
+def _flat_image_loaders(
+    dataset: str, batch_size: int, *, tuning: bool = False
+) -> LoaderFactory:
     """Loaders for one trial of a flattened-image dataset (MNIST-like).
 
     ``dataset`` is "mnist" or "fashionmnist". The seed fixes the shuffle order.
+    ``tuning`` swaps the test set for the held-out part of the training set.
     """
+    train_split, eval_split = splits(tuning)
 
     def build(seed: int):
         # Imported here so the registry can be listed without tensorflow.
@@ -202,14 +210,14 @@ def _flat_image_loaders(dataset: str, batch_size: int) -> LoaderFactory:
             "fashionmnist": dataloader.FashionMnistLoader,
         }[dataset]
         train = loader_cls(
-            "train",
+            train_split,
             batch_size=batch_size,
             tensor_format="flat",
             shuffle=True,
             seed=seed,
         )
         test = loader_cls(
-            "test", batch_size=batch_size, tensor_format="flat", shuffle=False
+            eval_split, batch_size=batch_size, tensor_format="flat", shuffle=False
         )
         return train, test
 
@@ -238,6 +246,7 @@ def _mlp_family(dataset: str) -> Dict[str, BenchmarkRow]:
             algorithm=algo,
             model_factory=_mnist_mlp_factory(algo),
             loader_factory=_flat_image_loaders(dataset, batch_size),
+            tune_loader_factory=_flat_image_loaders(dataset, batch_size, tuning=True),
             optimizer_factory=lambda total_steps: optax.adamw(0.001, weight_decay=0.1),
             train_config={"num_epochs": 20},
             batch_size=batch_size,
@@ -285,22 +294,26 @@ def _cifar10_vgg5_factory(algorithm: str) -> ModelFactory:
     return build
 
 
-def _cifar10_loaders(batch_size: int) -> LoaderFactory:
+def _cifar10_loaders(batch_size: int, *, tuning: bool = False) -> LoaderFactory:
     """CIFAR-10 loaders for one trial: training images get random flips and
-    4-pixel random crops, as in pcx; test images are left alone."""
+    4-pixel random crops, as in pcx; test images are left alone. ``tuning``
+    scores on the held-out part of the training set instead (unaugmented)."""
+    train_split, eval_split = splits(tuning)
 
     def build(seed: int):
         from fabricpc.utils.data import dataloader
 
         train = dataloader.AugmentedImageLoader(
             dataloader.Cifar10Loader(
-                "train", batch_size=batch_size, shuffle=True, seed=seed
+                train_split, batch_size=batch_size, shuffle=True, seed=seed
             ),
             flip_prob=0.5,
             crop_pad=4,
             seed=seed,
         )
-        test = dataloader.Cifar10Loader("test", batch_size=batch_size, shuffle=False)
+        test = dataloader.Cifar10Loader(
+            eval_split, batch_size=batch_size, shuffle=False
+        )
         return train, test
 
     return build
@@ -347,6 +360,7 @@ def _cifar10_vgg5_family() -> Dict[str, BenchmarkRow]:
             algorithm=algo,
             model_factory=_cifar10_vgg5_factory(algo),
             loader_factory=_cifar10_loaders(batch_size),
+            tune_loader_factory=_cifar10_loaders(batch_size, tuning=True),
             optimizer_factory=lambda total_steps: optax.adamw(
                 _vgg_lr_schedule(total_steps),
                 weight_decay=_VGG_WEIGHT_DECAY,
@@ -419,6 +433,7 @@ def _cifar10_resnet18_family() -> Dict[str, BenchmarkRow]:
             algorithm=algo,
             model_factory=_cifar10_resnet18_factory(algo),
             loader_factory=_cifar10_loaders(batch_size),
+            tune_loader_factory=_cifar10_loaders(batch_size, tuning=True),
             optimizer_factory=resnet18_demo_optimizer,
             train_config={"num_epochs": 100},
             batch_size=batch_size,
@@ -484,7 +499,12 @@ def _char_transformer_factory(algorithm: str) -> ModelFactory:
     return build
 
 
-def _tinyshakespeare_loaders(batch_size: int, seq_len: int) -> LoaderFactory:
+def _tinyshakespeare_loaders(
+    batch_size: int, seq_len: int, *, tuning: bool = False
+) -> LoaderFactory:
+    """Tiny Shakespeare has its own validation split; tuning scores on it."""
+    eval_split = "validation" if tuning else "test"
+
     def build(seed: int):
         from fabricpc.utils.data.dataloader import CharDataLoader
 
@@ -492,7 +512,7 @@ def _tinyshakespeare_loaders(batch_size: int, seq_len: int) -> LoaderFactory:
             "train", seq_len=seq_len, batch_size=batch_size, shuffle=True, seed=seed
         )
         test = CharDataLoader(
-            "test", seq_len=seq_len, batch_size=batch_size, shuffle=False
+            eval_split, seq_len=seq_len, batch_size=batch_size, shuffle=False
         )
         return train, test
 
@@ -515,6 +535,9 @@ def _tinyshakespeare_transformer_family() -> Dict[str, BenchmarkRow]:
             algorithm=algo,
             model_factory=_char_transformer_factory(algo),
             loader_factory=_tinyshakespeare_loaders(c["batch_size"], c["seq_len"]),
+            tune_loader_factory=_tinyshakespeare_loaders(
+                c["batch_size"], c["seq_len"], tuning=True
+            ),
             optimizer_factory=lambda total_steps: optax.adam(
                 _char_transformer_lr(total_steps), eps=_DEEP_ADAM_EPS
             ),
@@ -583,9 +606,12 @@ class _AsReconstruction:
         return len(self._loader)
 
 
-def _mnist_reconstruction_loaders(batch_size: int) -> LoaderFactory:
+def _mnist_reconstruction_loaders(
+    batch_size: int, *, tuning: bool = False
+) -> LoaderFactory:
     """MNIST with pixels left in [0, 1] (no mean/std normalization), so the
     sigmoid output can match them."""
+    train_split, eval_split = splits(tuning)
 
     def build(seed: int):
         from fabricpc.utils.data import dataloader
@@ -603,7 +629,7 @@ def _mnist_reconstruction_loaders(batch_size: int) -> LoaderFactory:
                 )
             )
 
-        return make("train", True), make("test", False)
+        return make(train_split, True), make(eval_split, False)
 
     return build
 
@@ -630,6 +656,7 @@ def _mnist_autoencoder_family() -> Dict[str, BenchmarkRow]:
             algorithm=algo,
             model_factory=_mnist_autoencoder_factory(algo),
             loader_factory=_mnist_reconstruction_loaders(batch_size),
+            tune_loader_factory=_mnist_reconstruction_loaders(batch_size, tuning=True),
             optimizer_factory=lambda total_steps: optax.adam(1e-3),
             train_config={"num_epochs": 20},
             batch_size=batch_size,
@@ -702,7 +729,7 @@ ROWS.update(_continual_family())
 
 @dataclass(frozen=True)
 class Comparison:
-    """The three algorithms on one model family, and the pairs we test.
+    """The methods on one model family, and the pairs we test.
 
     Rows of a family share a dataset, a model, and the seeds, so their
     trials pair up one to one. Each contrast is ``(a, b)``, read as a - b.
@@ -715,17 +742,59 @@ class Comparison:
 
 
 def _family_comparison(family: str) -> Comparison:
-    spc, epc, bp = (f"{family}-{algo}" for algo in ALGORITHMS)
+    """The family's rows in method order, and its contrasts: each settling
+    method against backprop (does PC keep up?), then each later settling
+    method against each earlier one (is ePC better than sPC?)."""
+    present = [m for m in ALGORITHMS if f"{family}-{m}" in ROWS]
+    rows = tuple(f"{family}-{m}" for m in present)
+    settling = [f"{family}-{m}" for m in present if METHODS[m].settles]
+    baseline = [f"{family}-{m}" for m in present if not METHODS[m].settles]
+    contrasts = [(pc, bp) for pc in settling for bp in baseline]
+    contrasts += [
+        (settling[j], settling[i])
+        for i in range(len(settling))
+        for j in range(i + 1, len(settling))
+    ]
+    reference = baseline[0] if baseline else rows[0]
     return Comparison(
         id=family,
-        rows=(spc, epc, bp),
-        # Does PC keep up with backprop, and is ePC better than sPC?
-        contrasts=((spc, bp), (epc, bp), (epc, spc)),
-        metric=ROWS[bp].metric if bp in ROWS else "accuracy",
+        rows=rows,
+        contrasts=tuple(contrasts),
+        metric=ROWS[reference].metric,
     )
 
 
-COMPARISONS: Dict[str, Comparison] = {
-    family: _family_comparison(family)
-    for family in dict.fromkeys(row_id.rsplit("-", 1)[0] for row_id in ROWS)
-}
+def _families() -> Dict[str, Comparison]:
+    names = dict.fromkeys(split_row_id(row_id)[0] for row_id in ROWS)
+    return {family: _family_comparison(family) for family in names}
+
+
+COMPARISONS: Dict[str, Comparison] = _families()
+
+
+def register_family(rows: Mapping[str, BenchmarkRow]) -> Comparison:
+    """Add a family's rows (say from ``fabricpc.bench.recipe.pc_family``) so
+    the command line, compare, tune and report see them like built-in ones.
+
+    Every row id must be ``<family>-<method>``, all of one family, at least
+    two methods; an id already taken is refused.
+    """
+    families = {split_row_id(row_id) for row_id in rows}
+    names = {family for family, _ in families}
+    if len(names) != 1 or any(method is None for _, method in families):
+        raise ValueError(
+            f"row ids must be one family's '<family>-<method>' with a method "
+            f"from {list(ALGORITHMS)}; got {sorted(rows)}"
+        )
+    if len(rows) < 2:
+        raise ValueError("a family needs at least two methods to compare")
+    taken = sorted(set(rows) & set(ROWS))
+    if taken:
+        raise ValueError(f"row ids already registered: {taken}")
+    for row_id, row in rows.items():
+        if row.id != row_id:
+            raise ValueError(f"key {row_id!r} holds row {row.id!r}")
+    ROWS.update(rows)
+    (family,) = names
+    COMPARISONS[family] = _family_comparison(family)
+    return COMPARISONS[family]

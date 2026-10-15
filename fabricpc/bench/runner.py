@@ -15,6 +15,7 @@ import jax
 from fabricpc.bench.compute import count_compute
 from fabricpc.bench.manifest import SCHEMA_VERSION
 from fabricpc.bench.diagnostics import diagnose
+from fabricpc.bench.methods import METHODS
 from fabricpc.bench.measure import (
     TIMING_VERSION,
     epc_regime,
@@ -30,7 +31,7 @@ from fabricpc.training.trainer import build_clamps, convert_batch
 
 # The trainer knows two algorithms. Both PC solvers use "pc"; the solver
 # itself lives inside the graph the row's model factory built.
-_TRAINER_ALGORITHM = {"spc": "pc", "epc": "pc", "backprop": "backprop"}
+_TRAINER_ALGORITHM = {name: m.trainer for name, m in METHODS.items()}
 
 # Any fixed number works; it just keeps the timing key apart from the three
 # keys the experiment framework uses.
@@ -230,6 +231,8 @@ class TrialResult:
     # PC rows: the settling solver as built, its class and settings (the
     # safety net's last rate is in rate_control); None for backprop
     solver: Optional[Dict[str, object]] = None
+    # Settings changed from the row's own (fabricpc.bench.settings), if any
+    settings: Optional[Dict[str, float]] = None
     num_epochs: float = 0.0  # what was trained, after max_train_steps
     # What was asked for, before max_train_steps cut it; --resume matches
     # on this (None in files written before it was recorded).
@@ -269,6 +272,8 @@ def run_trial(
     diagnostics: bool = True,
     max_eval_batches: Optional[int] = None,
     max_train_steps: Optional[int] = None,
+    measure: bool = True,
+    settled: bool = False,
 ) -> TrialResult:
     """Train the row's model once, measure it, and write ``trial<i>.json``.
 
@@ -279,6 +284,10 @@ def run_trial(
     trial records it in ``eval_batches_capped``. ``max_train_steps`` trains
     at most that many steps whatever the dataset's size (the epoch count is
     cut to match), recorded in ``train_steps_capped``.
+
+    ``measure=False`` only trains and scores, for tuning: no step timing,
+    FLOP count, memory or regime (``settled`` still reads ePC's regime at
+    the end, for its settled fraction).
     """
     seed = seed_for_trial(trial, seed_offset)
     out_path = Path(out_dir) / row.id / f"trial{trial}.json"
@@ -305,51 +314,55 @@ def run_trial(
         if max_train_steps is not None:
             epochs = min(epochs, max_train_steps / len(timing_loader))
         optimizer = row.optimizer_factory(total_train_steps(timing_loader, epochs))
-        timing = time_steps(
-            params,
-            structure,
-            optimizer,
-            timing_loader,
-            timing_key,
-            algorithm=algorithm,
-            warmup_steps=warmup_steps,
-            timed_steps=timed_steps,
-        )
-        memory = memory_snapshot().bytes_in_use
+        timing = memory = regime_at_init = diag_init = None
+        if measure:
+            timing = time_steps(
+                params,
+                structure,
+                optimizer,
+                timing_loader,
+                timing_key,
+                algorithm=algorithm,
+                warmup_steps=warmup_steps,
+                timed_steps=timed_steps,
+            )
+            memory = memory_snapshot().bytes_in_use
         probe = probe_batch(timing_loader)
-        regime_at_init = epc_regime(params, structure, probe, timing_key)
-        diag_init = (
-            diagnose(params, structure, probe, timing_key, row.algorithm)
-            if diagnostics
-            else None
-        )
+        if measure:
+            regime_at_init = epc_regime(params, structure, probe, timing_key)
+            if diagnostics:
+                diag_init = diagnose(
+                    params, structure, probe, timing_key, row.algorithm
+                )
         train_loader, test_loader = loaders or row.loader_factory(seed)
         if max_eval_batches is not None:
             test_loader = _BatchList(itertools.islice(test_loader, max_eval_batches))
 
-        # The hand count (sponsor-style, nominal) and XLA's count of what
-        # really runs; TFLOP/s uses XLA's when it can be made.
-        compute = {
-            **asdict(
-                count_compute(
+        compute, achieved_tflops = {}, 0.0
+        if measure:
+            # The hand count (sponsor-style, nominal) and XLA's count of what
+            # really runs; TFLOP/s uses XLA's when it can be made.
+            compute = {
+                **asdict(
+                    count_compute(
+                        params,
+                        structure,
+                        batch_size=row.batch_size,
+                        algorithm=row.algorithm,
+                    )
+                ),
+                **xla_compute(
                     params,
                     structure,
-                    batch_size=row.batch_size,
-                    algorithm=row.algorithm,
-                )
-            ),
-            **xla_compute(
-                params,
-                structure,
-                optimizer,
-                convert_batch(probe),
-                timing_key,
-                algorithm,
-            ),
-        }
-        flops = compute.get("xla_flops_per_update", compute["flops_per_update"])
-        # tflops = flops per update / seconds per update / 1e12
-        achieved_tflops = flops / (timing.step_time_ms / 1000.0) / 1e12
+                    optimizer,
+                    convert_batch(probe),
+                    timing_key,
+                    algorithm,
+                ),
+            }
+            flops = compute.get("xla_flops_per_update", compute["flops_per_update"])
+            # tflops = flops per update / seconds per update / 1e12
+            achieved_tflops = flops / (timing.step_time_ms / 1000.0) / 1e12
 
         config = {**row.train_config, "num_epochs": epochs}
         t0 = time.perf_counter()
@@ -425,11 +438,10 @@ def run_trial(
             metrics.update(row.curve_summary(curve.points))
         peak_memory = memory_snapshot().peak_bytes
         regime = None
-        if regime_at_init is not None:
-            regime = {
-                "init": regime_at_init,
-                "final": epc_regime(trained.params, structure, probe, timing_key),
-            }
+        if regime_at_init is not None or (settled and not measure):
+            final = epc_regime(trained.params, structure, probe, timing_key)
+            if final is not None:
+                regime = {"init": regime_at_init, "final": final}
 
         checkpoint = None
         if zoo_dir is not None:
@@ -451,13 +463,13 @@ def run_trial(
             algorithm=row.algorithm,
             n_params=n_params,
             metrics=metrics,
-            compile_time_s=timing.compile_time_s,
-            step_time_ms=timing.step_time_ms,
+            compile_time_s=timing.compile_time_s if timing else 0.0,
+            step_time_ms=timing.step_time_ms if timing else 0.0,
             train_time_s=train_time_s,
             safety_net_s=safety_net.seconds if controller else None,
             memory_bytes=memory,
             peak_memory_bytes=peak_memory,
-            step_memory=timing.step_memory,
+            step_memory=timing.step_memory if timing else None,
             epc_regime=regime,
             diagnostics=(
                 None
@@ -489,7 +501,8 @@ def run_trial(
             checkpoint=checkpoint,
             eval_batches_capped=max_eval_batches,
             train_steps_capped=max_train_steps,
-            timing_version=TIMING_VERSION,
+            timing_version=TIMING_VERSION if timing else None,
+            settings=dict(row.settings) or None,
         )
     except Exception:  # noqa: BLE001 - a failed trial must still be recorded
         result = TrialResult(
@@ -519,12 +532,14 @@ def finished_trial(
     *,
     max_train_steps: Optional[int] = None,
     max_eval_batches: Optional[int] = None,
+    settings: Optional[Dict[str, float]] = None,
 ) -> bool:
     """True when ``trial<i>.json`` holds a good result for this run.
 
     Used by ``--resume``. A failed trial, a missing or broken file, one
     asked for a different number of epochs, or one cut to a different
-    number of training steps or test batches does not count as finished.
+    number of training steps or test batches, or one trained with other
+    ``settings`` (bench.settings; none means the row's own) does not count.
     A shortened trial trains only part of an epoch, so the epochs it was
     asked for are compared, not the epochs it trained.
     """
@@ -539,4 +554,5 @@ def finished_trial(
         and asked == float(num_epochs)
         and saved.get("train_steps_capped") == max_train_steps
         and saved.get("eval_batches_capped") == max_eval_batches
+        and (saved.get("settings") or {}) == dict(settings or {})
     )

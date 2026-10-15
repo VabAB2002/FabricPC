@@ -19,7 +19,7 @@ import json
 import subprocess
 import sys
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Mapping, Optional
 
 from fabricpc.bench.registry import BenchmarkRow
 from fabricpc.bench.runner import TrialResult, seed_for_trial
@@ -40,8 +40,13 @@ def child_command(
     diagnostics: bool = True,
     max_eval_batches: Optional[int] = None,
     max_train_steps: Optional[int] = None,
+    settings: Optional[Mapping[str, float]] = None,
 ) -> List[str]:
-    """The command that runs one trial of one row in a new process."""
+    """The command that runs one trial of one row in a new process.
+
+    The child looks the row up by id, so changed ``settings`` (see
+    ``fabricpc.bench.settings``) go along as ``--set name=value``.
+    """
     cmd = [sys.executable, "-m", "fabricpc.bench", row_id]
     cmd += ["--trial", str(trial), "--in-process", "--out", str(out_dir)]
     cmd += ["--warmup", str(warmup_steps), "--timed", str(timed_steps)]
@@ -57,6 +62,8 @@ def child_command(
         cmd += ["--max-eval-batches", str(max_eval_batches)]
     if max_train_steps is not None:
         cmd += ["--max-train-steps", str(max_train_steps)]
+    for name, value in (settings or {}).items():
+        cmd += ["--set", f"{name}={float(value)!r}"]
     return cmd
 
 
@@ -91,6 +98,7 @@ def run_trial_in_child(
         diagnostics=diagnostics,
         max_eval_batches=max_eval_batches,
         max_train_steps=max_train_steps,
+        settings=row.settings,
     )
     # stdout passes straight through so training progress still shows.
     proc = subprocess.run(cmd, stderr=subprocess.PIPE, text=True)

@@ -32,6 +32,7 @@ from typing import Dict
 import jax
 import optax
 
+from fabricpc.bench.splits import splits
 from fabricpc.core.activations import HardTanhActivation
 from fabricpc.core.inference import InferenceSGD
 from fabricpc.core.inference_epc import EPCInference
@@ -84,22 +85,26 @@ def _model_factory(algorithm: str):
     return build
 
 
-def _loaders(batch_size: int):
+def _loaders(batch_size: int, *, tuning: bool = False):
     """CIFAR-100 loaders for one trial: training images get random flips and
-    4-pixel crops, as in pcx; test images are left alone."""
+    4-pixel crops, as in pcx; test images are left alone. ``tuning`` scores
+    on the held-out part of the training set instead (unaugmented)."""
+    train_split, eval_split = splits(tuning)
 
     def build(seed: int):
         from fabricpc.utils.data import dataloader
 
         train = dataloader.AugmentedImageLoader(
             dataloader.Cifar100Loader(
-                "train", batch_size=batch_size, shuffle=True, seed=seed
+                train_split, batch_size=batch_size, shuffle=True, seed=seed
             ),
             flip_prob=0.5,
             crop_pad=4,
             seed=seed,
         )
-        test = dataloader.Cifar100Loader("test", batch_size=batch_size, shuffle=False)
+        test = dataloader.Cifar100Loader(
+            eval_split, batch_size=batch_size, shuffle=False
+        )
         return train, test
 
     return build
@@ -144,6 +149,7 @@ def cifar100_vgg5_family() -> Dict[str, object]:
             algorithm=algo,
             model_factory=_model_factory(algo),
             loader_factory=_loaders(batch_size),
+            tune_loader_factory=_loaders(batch_size, tuning=True),
             optimizer_factory=_optimizer,
             train_config={"num_epochs": 50},
             batch_size=batch_size,

@@ -52,7 +52,10 @@ debugging; ``--trial i`` runs a single trial and is what each child does.
 """
 
 import argparse
+import importlib
+import importlib.util
 import json
+import os
 import math
 import sys
 from dataclasses import asdict
@@ -65,6 +68,7 @@ from fabricpc.bench.compare import compare_family
 from fabricpc.bench.refresh import refresh_results
 from fabricpc.bench.registry import COMPARISONS, PRESETS, ROWS
 from fabricpc.bench.runner import finished_trial, run_trial, seed_for_trial
+from fabricpc.bench.settings import SOLVER_SETTINGS, apply_settings, load_settings
 from fabricpc.bench.summary import MIN_TRIALS, compare_rows, summarize_row
 from fabricpc.bench.writer import validate, write_trials_csv
 
@@ -77,7 +81,7 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument(
         "target",
         help="'list', 'compare', 'smoke', 'regress', 'validate', 'refresh', "
-        "'probe', 'queue', 'report', 'doctor', 'trend', 'cycles', or a row "
+        "'probe', 'queue', 'report', 'doctor', 'trend', 'cycles', 'tune', or a row "
         "id like mnist-mlp-spc",
     )
     p.add_argument(
@@ -160,6 +164,54 @@ def _parser() -> argparse.ArgumentParser:
         "--expect-gpu",
         action="store_true",
         help="for 'doctor': fail unless JAX sees a GPU",
+    )
+    p.add_argument(
+        "--rows-module",
+        action="append",
+        default=[],
+        metavar="FILE_OR_MODULE",
+        help="import this .py file or module first, for rows of your own (it calls "
+        "fabricpc.bench.registry.register_family); repeatable. Same as "
+        "setting FABRICPC_BENCH_ROWS",
+    )
+    p.add_argument(
+        "--settings",
+        help="run with tuned settings: a file 'tune' wrote, or its --out "
+        "folder (each row reads <row id>.json there; rows with none run as written)",
+    )
+    p.add_argument(
+        "--set",
+        action="append",
+        default=[],
+        metavar="NAME=VALUE",
+        help="change one setting for this run: lr_scale, eta_infer or "
+        "infer_steps (PC rows); repeatable, and applied after --settings",
+    )
+    p.add_argument(
+        "--budget",
+        type=int,
+        default=20,
+        help="for 'tune': settings tried per row (default 20, the row's own first)",
+    )
+    p.add_argument(
+        "--space",
+        action="append",
+        default=[],
+        metavar="NAME=LOW:HIGH[:lin]",
+        help="for 'tune': search NAME between LOW and HIGH (log scale unless "
+        ":lin); repeatable",
+    )
+    p.add_argument(
+        "--min-settled",
+        type=float,
+        help="for 'tune' on ePC rows: keep only settings whose settled "
+        "fraction ends at this value or above",
+    )
+    p.add_argument(
+        "--seed",
+        type=int,
+        default=0,
+        help="for 'tune': the training seed every try uses, and the search's",
     )
     p.add_argument(
         "--price-per-hour",
@@ -256,6 +308,7 @@ def _run_row(
             wanted_epochs,
             max_train_steps=max_train_steps,
             max_eval_batches=max_eval_batches,
+            settings=row.settings,
         ):
             print(f"{row.id} trial {trial}: already done, skipping")
             continue
@@ -563,7 +616,12 @@ def cmd_family(args, command) -> int:
             file=sys.stderr,
         )
         return 2
-    codes = [_run_one_row(ROWS[row_id], args, command) for row_id in family.rows]
+    try:
+        rows = [_with_settings(ROWS[r], args, family=True) for r in family.rows]
+    except ValueError as e:
+        print(f"{family.id}: {e}", file=sys.stderr)
+        return 2
+    codes = [_run_one_row(row, args, command) for row in rows]
     try:
         _compare_family(family.id, args.out, args.metric or family.metric)
     except ValueError as e:  # too few good trials to pair
@@ -572,12 +630,82 @@ def cmd_family(args, command) -> int:
     return max(codes)
 
 
+def _with_settings(row, args, *, family: bool = False):
+    """``row`` with --settings and --set applied (ValueError if one is bad).
+
+    On a family run, --set eta_infer / infer_steps change the PC rows only:
+    the backprop row does not settle.
+    """
+    settings = load_settings(args.settings, row.id) if args.settings else {}
+    for text in args.set:
+        name, sep, value = text.partition("=")
+        name = name.strip()
+        if not sep:
+            raise ValueError(f"--set {text!r}: expected NAME=VALUE")
+        if family and row.algorithm == "backprop" and name in SOLVER_SETTINGS:
+            continue
+        settings[name] = float(value)
+    return apply_settings(row, settings)
+
+
+def cmd_tune(args, command) -> int:
+    """Tune a row's or every row of a family's settings (see bench.tune)."""
+    from fabricpc.bench.tune import describe_result, parse_space, tune_row
+
+    target = args.rows[0] if args.rows else None
+    if target in ROWS:
+        row_ids = [target]
+    elif target in COMPARISONS:
+        row_ids = list(COMPARISONS[target].rows)
+    else:
+        return _unknown_row(target)
+    out = _own_out(args, command, "tuned")
+    try:
+        space = parse_space(args.space)
+    except ValueError as e:
+        print(e, file=sys.stderr)
+        return 2
+    code = 0
+    for row_id in row_ids:
+        row = ROWS[row_id]
+        if args.min_settled is not None and row.algorithm != "epc":
+            continue  # --min-settled on a family tunes its ePC row only
+        try:
+            result = tune_row(
+                row,
+                out,
+                budget=args.budget,
+                seed=args.seed,
+                epochs=args.epochs,
+                max_train_steps=args.max_train_steps,
+                space={
+                    k: v
+                    for k, v in space.items()
+                    if row.algorithm != "backprop" or k not in SOLVER_SETTINGS
+                },
+                min_settled=args.min_settled,
+                command=" ".join(command),
+            )
+        except (ValueError, RuntimeError) as e:
+            print(f"{row_id}: {e}", file=sys.stderr)
+            code = 1
+            continue
+        print(describe_result(result))
+    print(f"settings written to {out}; run with --settings {out}")
+    return code
+
+
 def cmd_run(args, command) -> int:
     if args.target in COMPARISONS and args.target not in ROWS:
         return cmd_family(args, command)
     row = ROWS.get(args.target)
     if row is None:
         return _unknown_row(args.target)
+    try:
+        row = _with_settings(row, args)
+    except ValueError as e:
+        print(f"{row.id}: {e}", file=sys.stderr)
+        return 2
     if args.dry_run:
         print(json.dumps(describe_row(row), indent=2))
         return 0
@@ -655,12 +783,59 @@ def cmd_probe(args, argv) -> int:
     return 0
 
 
+# Your own rows: Python files or module names (comma-separated), imported
+# before anything else; each calls registry.register_family. Child trials
+# inherit the variable, so they find the same rows.
+ROWS_MODULES_ENV = "FABRICPC_BENCH_ROWS"
+
+
+def _import_rows(name: str) -> None:
+    """Import a rows file (``path/to/rows.py``) or module (``pkg.rows``) once."""
+    if not name.endswith(".py"):
+        importlib.import_module(name)
+        return
+    path = Path(name).resolve()
+    key = f"fabricpc_bench_rows_{abs(hash(str(path)))}"
+    if key in sys.modules:
+        return
+    spec = importlib.util.spec_from_file_location(key, path)
+    if spec is None or not path.exists():
+        raise FileNotFoundError(f"{ROWS_MODULES_ENV}: no such file {path}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[key] = module
+    try:
+        spec.loader.exec_module(module)
+    except BaseException:
+        del sys.modules[key]
+        raise
+
+
+def load_row_modules(extra=()) -> None:
+    """Import the files or modules in $FABRICPC_BENCH_ROWS and ``extra``
+    (--rows-module), and put ``extra`` in the variable (files as absolute
+    paths) so child trial processes import them too."""
+    names = [
+        n.strip() for n in os.environ.get(ROWS_MODULES_ENV, "").split(",") if n.strip()
+    ]
+    for name in extra:
+        name = str(Path(name).resolve()) if name.endswith(".py") else name
+        if name not in names:
+            names.append(name)
+    if extra:
+        os.environ[ROWS_MODULES_ENV] = ",".join(names)
+    for name in names:
+        _import_rows(name)
+
+
 def main(argv=None) -> int:
+    load_row_modules()
     if (sys.argv[1:] if argv is None else list(argv))[:1] == ["queue"]:
         from fabricpc.bench.queue import cli as queue_cli  # has its own flags
 
         return queue_cli((sys.argv[1:] if argv is None else argv)[1:], run_main=main)
     args = _parser().parse_args(argv)
+    if args.rows_module:
+        load_row_modules(args.rows_module)
     if args.trials is None and args.preset is not None:
         args.trials = PRESETS[args.preset]
     if args.fast:
@@ -691,6 +866,8 @@ def main(argv=None) -> int:
         return cmd_probe(args, argv if argv is not None else sys.argv[1:])
     if args.target == "report":
         return cmd_report(args, command[3:])
+    if args.target == "tune":
+        return cmd_tune(args, command)
     return cmd_run(args, command)
 
 

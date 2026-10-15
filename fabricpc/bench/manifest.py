@@ -39,7 +39,9 @@ from fabricpc.bench.registry import BenchmarkRow
 # 9: trials carry solver (the settling solver's class and settings); the
 #    summary carries settled_fraction and solver; compare files carry each
 #    row's settled_fraction; trials.csv's epc_f_weighted is settled_fraction
-SCHEMA_VERSION = 9
+# 10: trials and the manifest's row carry settings, the changes made to the
+#     row's own (lr_scale, eta_infer, infer_steps; see bench.settings)
+SCHEMA_VERSION = 10
 
 
 def _speed_test() -> Optional[float]:
@@ -113,6 +115,7 @@ def describe_row(row: BenchmarkRow) -> dict:
         "train_config": dict(row.train_config),
         "tier": row.tier,
         "reference": asdict(row.reference) if row.reference else None,
+        "settings": dict(row.settings),
     }
 
 
