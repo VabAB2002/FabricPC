@@ -176,7 +176,7 @@ def test_trials_csv_shows_the_epc_regime_band_after_training(tmp_path):
     with open(row_dir / "trials.csv") as f:
         lines = list(csv.DictReader(f))
     assert lines[0]["epc_band"] == "partially relaxed"
-    assert float(lines[0]["epc_f_weighted"]) == 0.25
+    assert float(lines[0]["settled_fraction"]) == 0.25
     assert lines[1]["epc_band"] == ""  # not an ePC trial
 
 

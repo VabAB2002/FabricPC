@@ -245,7 +245,7 @@ def _pc_likeness(trials: list, notes: list) -> str:
         for band, k in sorted(epc["bands"].items(), key=lambda kv: -kv[1]):
             parts.append(f"{band} {k}/{epc['n']}")
         if epc.get("f_weighted"):
-            parts.append(f"f̄ {epc['f_weighted']['mean']:.2f}")
+            parts.append(f"settled fraction {epc['f_weighted']['mean']:.2f}")
     align = (reg.get("backprop_alignment") or {}).get("final")
     if align:
         parts.append(f"cos {align['mean_cos']['mean']:.2f}")

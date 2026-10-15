@@ -19,13 +19,14 @@ import json
 import math
 from dataclasses import asdict
 from pathlib import Path
-from typing import List, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 from fabricpc.bench.ci import paired_ci95
 from fabricpc.bench.manifest import SCHEMA_VERSION
 from fabricpc.bench.registry import BenchmarkRow, Comparison
 from fabricpc.bench.runner import _TRAINER_ALGORITHM
 from fabricpc.bench.stats import hedges_gz, holm
+from fabricpc.bench.summary import load_trials, settled_fraction
 from fabricpc.experiments import ExperimentArm, PlannedMultiContrastResults
 from fabricpc.experiments.ab_experiment import TrialResult as ArmTrial
 from fabricpc.training import evaluate, train
@@ -190,6 +191,15 @@ def corrected(contrasts: List[dict]) -> List[dict]:
     return fixed
 
 
+def _settled_fractions(results_dir, row_ids) -> Dict[str, Optional[float]]:
+    """Each row's mean settled fraction over its good trials, or None."""
+    out = {}
+    for row_id in row_ids:
+        stats = settled_fraction(load_trials(results_dir, row_id))
+        out[row_id] = stats["mean"] if stats else None
+    return out
+
+
 def compare_family(results_dir, comparison: Comparison, *, metric: str) -> dict:
     """Run a family's planned contrasts and write ``compare-<family>.json``."""
     res = planned_results(
@@ -206,6 +216,9 @@ def compare_family(results_dir, comparison: Comparison, *, metric: str) -> dict:
         "n_trials": res.n_trials,
         "unpaired_seeds": _pair_on_shared_seeds(results_dir, comparison.rows)[2],
         "num_epochs": res.num_epochs,
+        # How far each row's settle went (ePC only): an ePC row near 0
+        # trained like backprop, so its contrast with backprop says little.
+        "settled_fraction": _settled_fractions(results_dir, comparison.rows),
         "contrasts": corrected(
             [_with_ci(res, _plain(asdict(c))) for c in res.contrast_results()]
         ),

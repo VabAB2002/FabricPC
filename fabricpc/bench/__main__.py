@@ -199,6 +199,12 @@ def _print_pc_likeness(row_id, summary):
     epc = (summary.epc_regime or {}).get("final")
     align = (summary.backprop_alignment or {}).get("final")
     parts = []
+    settled = summary.settled_fraction
+    if settled:
+        parts.append(
+            f"settled fraction {settled['mean']:.2f} ± {settled['se']:.2f} "
+            "(0 = backprop, 1 = PC equilibrium)"
+        )
     if epc:
         parts += [f"{band} {k}/{epc['n']}" for band, k in epc["bands"].items()]
     if align:

@@ -72,6 +72,10 @@ class RowSummary:
     # How PC-like the runs were (see regime_summary); None for backprop rows.
     epc_regime: Optional[Dict[str, object]] = None
     backprop_alignment: Optional[Dict[str, object]] = None
+    # ePC rows: how far the settle went at the end of training, 0 (backprop)
+    # to 1 (the PC equilibrium); the regime's f_weighted, over seeds.
+    settled_fraction: Optional[Dict[str, float]] = None
+    solver: Optional[Dict[str, object]] = None  # PC rows: as the trials built it
     # Set when trials scored only part of the test set (a rehearsal).
     eval_batches_capped: Optional[int] = None
     band: Optional[Dict[str, object]] = None  # filled in by fabricpc.bench.band
@@ -112,6 +116,25 @@ def _alignment_at(trials: List[dict], when: str) -> Optional[Dict[str, object]]:
         "mean_cos": _stats([a["mean_cos"] for a in found]),
         "min_cos": _stats([a["min_cos"] for a in found]),
     }
+
+
+def trial_settled_fraction(trial: dict) -> Optional[float]:
+    """An ePC trial's settled fraction at the end of training, else None.
+
+    It is the regime's gradient-weighted relaxed fraction f_weighted: below
+    about 0.1 the run trained like backprop, near 1 it reached the PC
+    equilibrium (see ``EPCInference.regime``).
+    """
+    final = (trial.get("epc_regime") or {}).get("final") or {}
+    return final.get("f_weighted")
+
+
+def settled_fraction(trials: List[dict]) -> Optional[Dict[str, float]]:
+    """Mean, SE and spread of the good trials' settled fractions; None when
+    no trial has one (sPC and backprop rows)."""
+    ok = [t for t in trials if t.get("status", "ok") == "ok"]
+    values = [f for f in map(trial_settled_fraction, ok) if f is not None]
+    return _stats(values) if values else None
 
 
 def regime_summary(trials: List[dict]) -> Dict[str, object]:
@@ -183,6 +206,8 @@ def summarize_row(results_dir, row_id: str) -> RowSummary:
         peak_memory_comparable=False if len(peaks) >= MIN_TRIALS else None,
         checkpoints=checkpoints,
         **regime_summary(ok),
+        settled_fraction=settled_fraction(ok),
+        solver=ok[0].get("solver"),
         eval_batches_capped=max(
             (t["eval_batches_capped"] for t in ok if t.get("eval_batches_capped")),
             default=None,

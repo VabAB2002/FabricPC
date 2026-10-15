@@ -24,6 +24,7 @@ from fabricpc.bench.measure import (
 from fabricpc.bench.registry import BenchmarkRow
 from fabricpc.bench.xla_flops import xla_compute
 from fabricpc.bench.zoo import save_params
+from fabricpc.core.inference import InferenceBase
 from fabricpc.training import InferenceRateController, evaluate, train
 from fabricpc.training.trainer import build_clamps, convert_batch
 
@@ -34,6 +35,34 @@ _TRAINER_ALGORITHM = {"spc": "pc", "epc": "pc", "backprop": "backprop"}
 # Any fixed number works; it just keeps the timing key apart from the three
 # keys the experiment framework uses.
 _TIMING_STREAM = 7
+
+
+def _plain_setting(value):
+    """A solver setting as JSON: numbers stay numbers, solvers nest."""
+    if isinstance(value, InferenceBase):
+        return {"class": type(value).__name__, **solver_settings(value)}
+    if isinstance(value, (list, tuple)):
+        return [_plain_setting(v) for v in value]
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return value
+    return repr(value)
+
+
+def solver_settings(inference: InferenceBase) -> Dict[str, object]:
+    """A solver's settings (eta_infer, infer_steps, ...) as plain data."""
+    return {k: _plain_setting(v) for k, v in inference.config.items()}
+
+
+def solver_record(structure, algorithm: str) -> Optional[Dict[str, object]]:
+    """The settling solver a PC trial trains with: class name and settings.
+
+    None for backprop: its graph carries a solver only so it can be built,
+    and it never settles.
+    """
+    inference = structure.config.get("inference")
+    if algorithm == "backprop" or inference is None:
+        return None
+    return {"class": type(inference).__name__, **solver_settings(inference)}
 
 
 def total_train_steps(train_loader, num_epochs: float) -> int:
@@ -198,6 +227,9 @@ class TrialResult:
     epc_regime: Optional[Dict[str, Dict[str, object]]] = None
     # Rows with rate_control: the controller's summary and every probe
     rate_control: Optional[Dict[str, object]] = None
+    # PC rows: the settling solver as built, its class and settings (the
+    # safety net's last rate is in rate_control); None for backprop
+    solver: Optional[Dict[str, object]] = None
     num_epochs: float = 0.0  # what was trained, after max_train_steps
     # What was asked for, before max_train_steps cut it; --resume matches
     # on this (None in files written before it was recorded).
@@ -265,6 +297,7 @@ def run_trial(
         timing_key = jax.random.fold_in(master_key, _TIMING_STREAM)
 
         params, structure = row.model_factory(graph_key)
+        solver = solver_record(structure, row.algorithm)
         n_params = int(sum(p.size for p in jax.tree_util.tree_leaves(params)))
         # Timing reads a few batches, so training gets fresh loaders after it
         # (the framework also builds fresh loaders for every arm).
@@ -447,6 +480,7 @@ def run_trial(
                     {"summary": controller.summary(), "history": controller.history}
                 )
             ),
+            solver=solver,
             curve=curve.points if curve.enabled else None,
             num_epochs=epochs,
             requested_epochs=requested_epochs,

@@ -36,7 +36,10 @@ from fabricpc.bench.registry import BenchmarkRow
 #    and xla_pc_to_backprop_ratio; achieved_tflops uses XLA's count
 # 8: trials carry requested_epochs, the epochs asked for before
 #    max_train_steps cut them (num_epochs is what was trained)
-SCHEMA_VERSION = 8
+# 9: trials carry solver (the settling solver's class and settings); the
+#    summary carries settled_fraction and solver; compare files carry each
+#    row's settled_fraction; trials.csv's epc_f_weighted is settled_fraction
+SCHEMA_VERSION = 9
 
 
 def _speed_test() -> Optional[float]:

@@ -32,7 +32,10 @@ _TAIL = [
     "peak_memory_bytes",
     "step_memory_bytes",
     "epc_band",
-    "epc_f_weighted",
+    "settled_fraction",
+    "solver",
+    "eta_infer",
+    "infer_steps",
     "eta_final",
     "rate_crossings",
     "stiffness_init",
@@ -71,7 +74,11 @@ def write_trials_csv(results_dir, row_id: str) -> Path:
             line["step_memory_bytes"] = (t.get("step_memory") or {}).get("total_bytes")
             final = (t.get("epc_regime") or {}).get("final") or {}
             line["epc_band"] = final.get("band")
-            line["epc_f_weighted"] = final.get("f_weighted")
+            line["settled_fraction"] = final.get("f_weighted")
+            solver = t.get("solver") or {}
+            line["solver"] = solver.get("class")
+            line["eta_infer"] = solver.get("eta_infer")
+            line["infer_steps"] = solver.get("infer_steps")
             rate = (t.get("rate_control") or {}).get("summary") or {}
             line["eta_final"] = rate.get("eta_final")
             line["rate_crossings"] = rate.get("crossings")
