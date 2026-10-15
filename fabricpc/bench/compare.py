@@ -25,7 +25,7 @@ from fabricpc.bench.ci import paired_ci95
 from fabricpc.bench.manifest import SCHEMA_VERSION
 from fabricpc.bench.registry import BenchmarkRow, Comparison
 from fabricpc.bench.runner import _TRAINER_ALGORITHM
-from fabricpc.bench.stats import hedges_gz, holm
+from fabricpc.bench.stats import default_margin, hedges_gz, holm, tost_paired
 from fabricpc.bench.summary import load_trials, settled_fraction
 from fabricpc.experiments import ExperimentArm, PlannedMultiContrastResults
 from fabricpc.experiments.ab_experiment import TrialResult as ArmTrial
@@ -200,8 +200,44 @@ def _settled_fractions(results_dir, row_ids) -> Dict[str, Optional[float]]:
     return out
 
 
-def compare_family(results_dir, comparison: Comparison, *, metric: str) -> dict:
-    """Run a family's planned contrasts and write ``compare-<family>.json``."""
+def _with_equivalence(res, contrast: dict, margin: float) -> dict:
+    """Add the paired equivalence test (stats.tost_paired) to one contrast."""
+    a = res.per_arm_metrics(contrast["arm_a"])
+    b = res.per_arm_metrics(contrast["arm_b"])
+    diffs = [x - y for x, y in zip(a, b)]
+    return {**contrast, "p_equivalence": tost_paired(diffs, margin=margin)}
+
+
+def equivalence_corrected(contrasts: List[dict]) -> List[dict]:
+    """Holm over the family's equivalence p-values, as for the others."""
+    ps = [c["p_equivalence"] for c in contrasts]
+    out = []
+    for c, p in zip(contrasts, holm(ps)):
+        out.append({**c, "p_equivalence_holm": p, "equivalent_holm_05": bool(p < 0.05)})
+    return out
+
+
+def _check_margin(margin: Optional[float]) -> None:
+    if margin is not None and not margin >= 0:
+        raise ValueError(f"the equivalence margin must be 0 or more, got {margin}")
+
+
+def compare_family(
+    results_dir,
+    comparison: Comparison,
+    *,
+    metric: str,
+    margin: Optional[float] = None,
+) -> dict:
+    """Run a family's planned contrasts and write ``compare-<family>.json``.
+
+    ``margin`` is the equivalence margin in the metric's units (None: the
+    metric's default, stats.default_margin; 0: no equivalence test).
+    """
+    _check_margin(margin)
+    if margin is None:
+        margin = default_margin(metric)
+    margin = margin or None  # 0 turns the test off
     res = planned_results(
         results_dir,
         rows=comparison.rows,
@@ -219,10 +255,15 @@ def compare_family(results_dir, comparison: Comparison, *, metric: str) -> dict:
         # How far each row's settle went (ePC only): an ePC row near 0
         # trained like backprop, so its contrast with backprop says little.
         "settled_fraction": _settled_fractions(results_dir, comparison.rows),
+        "equivalence_margin": margin,
         "contrasts": corrected(
             [_with_ci(res, _plain(asdict(c))) for c in res.contrast_results()]
         ),
     }
+    if margin is not None:
+        out["contrasts"] = equivalence_corrected(
+            [_with_equivalence(res, c, margin) for c in out["contrasts"]]
+        )
     # The family's own metric keeps the plain name; any other metric gets its
     # own file, so comparing on a second metric never overwrites the first.
     suffix = "" if metric == comparison.metric else f"-{metric}"

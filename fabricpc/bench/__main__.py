@@ -109,6 +109,13 @@ def _parser() -> argparse.ArgumentParser:
         "for text models, else accuracy)",
     )
     p.add_argument(
+        "--margin",
+        type=float,
+        help="for comparing a family: test equivalence within this margin, in "
+        "the metric's units (default: 0.005 on accuracy, none on other "
+        "metrics; 0 turns it off)",
+    )
+    p.add_argument(
         "--format", choices=["md", "html"], help="for 'report' (default: md)"
     )
     p.add_argument("--row", default=SMOKE_ROW, help="row for 'smoke'")
@@ -370,7 +377,7 @@ def cmd_list() -> int:
     return 0
 
 
-def _print_contrast(a, b, metric, c) -> None:
+def _print_contrast(a, b, metric, c, margin=None) -> None:
     p_holm = c.get("p_holm", math.nan)
     if p_holm == p_holm:  # not NaN
         sig = "yes" if c["significant_holm_05"] else "no"
@@ -387,19 +394,27 @@ def _print_contrast(a, b, metric, c) -> None:
         f"95% CI [{c['ci95_low']:+.4f}, {c['ci95_high']:+.4f}], "
         f"{p_text}, g_z={c['hedges_gz']:.2f}, n={c['n']}, {verdict})"
     )
+    if c.get("p_equivalence_holm") is not None and margin:
+        same = "yes" if c["equivalent_holm_05"] else "not shown"
+        print(
+            f"  equivalent within ±{margin:g} (TOST, Holm p="
+            f"{c['p_equivalence_holm']:.3g}): {same}"
+        )
 
 
-def _compare_family(family_id, out, metric) -> int:
-    result = compare_family(out, COMPARISONS[family_id], metric=metric)
+def _compare_family(family_id, out, metric, margin=None) -> int:
+    result = compare_family(out, COMPARISONS[family_id], metric=metric, margin=margin)
     for c in result["contrasts"]:
-        _print_contrast(c["arm_a"], c["arm_b"], metric, c)
+        _print_contrast(c["arm_a"], c["arm_b"], metric, c, result["equivalence_margin"])
     return 0
 
 
 def cmd_compare(args) -> int:
     if len(args.rows) == 1 and args.rows[0] in COMPARISONS:
         family = COMPARISONS[args.rows[0]]
-        return _compare_family(family.id, args.out, args.metric or family.metric)
+        return _compare_family(
+            family.id, args.out, args.metric or family.metric, args.margin
+        )
     if len(args.rows) != 2:
         print(
             "usage: compare <row-a> <row-b> | compare <family> [--metric NAME]",
@@ -623,7 +638,7 @@ def cmd_family(args, command) -> int:
         return 2
     codes = [_run_one_row(row, args, command) for row in rows]
     try:
-        _compare_family(family.id, args.out, args.metric or family.metric)
+        _compare_family(family.id, args.out, args.metric or family.metric, args.margin)
     except ValueError as e:  # too few good trials to pair
         print(f"{family.id}: no comparison: {e}", file=sys.stderr)
         return 1
