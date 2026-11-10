@@ -43,7 +43,7 @@ import fabricpc
 from fabricpc.bench.stats.band import attach_band
 from fabricpc.bench.stats.compare import compare_family
 from fabricpc.bench.run.compute import count_compute
-from fabricpc.bench.results.manifest import _git_sha
+from fabricpc.bench.run.manifest import _git_sha
 from fabricpc.bench.definitions.registry import COMPARISONS, ROWS
 from fabricpc.bench.stats.summary import MIN_TRIALS, compare_rows, summarize_row
 from fabricpc.bench.results.writer import _trial_files, write_trials_csv

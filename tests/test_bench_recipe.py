@@ -5,9 +5,9 @@ import math
 
 import pytest
 
-from fabricpc.bench import registry
-from fabricpc.bench.registry import ROWS
-from fabricpc.bench.runner import run_trial
+from fabricpc.bench.definitions import registry
+from fabricpc.bench.definitions.registry import ROWS
+from fabricpc.bench.run.runner import run_trial
 from fabricpc.utils.data import AugmentedImageLoader
 from tests.test_bench_runner import fake_mnist_loaders
 

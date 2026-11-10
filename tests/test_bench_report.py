@@ -9,7 +9,7 @@ the report page says about it.
 import json
 
 from fabricpc.bench.__main__ import main
-from fabricpc.bench.report import build_report, render
+from fabricpc.bench.results.report import build_report, render
 
 
 def _stats(mean, se, n, **extra):
@@ -302,7 +302,7 @@ def test_loose_files_next_to_families_are_mentioned(tmp_path):
 
 def test_the_interval_summary_py_writes_is_shown(tmp_path):
     # summary._stats writes ci95_low / ci95_high; use exactly that shape.
-    from fabricpc.bench.summary import _stats as summary_stats
+    from fabricpc.bench.stats.summary import _stats as summary_stats
 
     stats = summary_stats([0.97, 0.98, 0.99])
     fam = tmp_path / "fam"
@@ -316,7 +316,7 @@ def test_the_interval_summary_py_writes_is_shown(tmp_path):
 
 def test_a_one_seed_row_with_no_interval_does_not_drop_the_family(tmp_path):
     # With one good trial summary._stats writes ci95_low = ci95_high = None.
-    from fabricpc.bench.summary import _stats as summary_stats
+    from fabricpc.bench.stats.summary import _stats as summary_stats
 
     stats = summary_stats([0.97])
     assert stats["ci95_low"] is None

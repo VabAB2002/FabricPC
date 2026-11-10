@@ -59,7 +59,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Sequence
 
-from fabricpc.bench.queue_plan import (
+from fabricpc.bench.cli.queue_plan import (
     PLANS_DIR,
     Job,
     Plan,
@@ -112,7 +112,7 @@ def _device() -> Dict[str, object]:
 
 
 def _git_sha() -> Optional[str]:
-    from fabricpc.bench.manifest import _git_sha as sha
+    from fabricpc.bench.run.manifest import _git_sha as sha
 
     return sha()
 
@@ -144,8 +144,8 @@ def job_argv(
 
 def _all_trials_finished(job: Job, out) -> bool:
     """True when every row of the job has every trial finished and good."""
-    from fabricpc.bench.registry import ROWS
-    from fabricpc.bench.runner import finished_trial
+    from fabricpc.bench.definitions.registry import ROWS
+    from fabricpc.bench.run.runner import finished_trial
 
     folder = Path(out) / job.id
     for row_id in job_rows(job.id) or ():
@@ -244,8 +244,8 @@ def _run_one(job: Job, entry: dict, out, run_main: RunMain, argv_opts) -> bool:
 
 def _finish(status: _Status, out) -> bool:
     """Validate every job folder and write the report. True if all is well."""
-    from fabricpc.bench.report import run_report
-    from fabricpc.bench.writer import validate
+    from fabricpc.bench.results.report import run_report
+    from fabricpc.bench.results.writer import validate
 
     problems: List[str] = []
     for entry in status.data["jobs"]:
@@ -374,7 +374,7 @@ def _job_line(n: int, job: Job, est: Optional[float]) -> str:
     if rows is None:
         return f"{n:2d}. {job.id}: unknown id, will be skipped"
     kind = "row" if rows == (job.id,) else f"family of {len(rows)} rows"
-    from fabricpc.bench.registry import ROWS
+    from fabricpc.bench.definitions.registry import ROWS
 
     row = ROWS[rows[0]]
     trials = job.trials if job.trials is not None else f"{row.n_trials} (row's own)"
@@ -393,7 +393,7 @@ def _job_line(n: int, job: Job, est: Optional[float]) -> str:
 
 def _live_probes(plan: Plan, out) -> List[Path]:
     """Time every known row now, save probe files, return where they went."""
-    from fabricpc.bench import probe
+    from fabricpc.bench.run import probe
 
     folder = Path(out or ".") / "probes"
     written = []

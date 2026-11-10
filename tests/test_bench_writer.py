@@ -4,11 +4,11 @@ import csv
 import dataclasses
 import json
 
-from fabricpc.bench.manifest import SCHEMA_VERSION, write_manifest
-from fabricpc.bench.registry import ROWS
-from fabricpc.bench.runner import TrialResult
-from fabricpc.bench.summary import summarize_row
-from fabricpc.bench.writer import validate, write_trials_csv
+from fabricpc.bench.run.manifest import SCHEMA_VERSION, write_manifest
+from fabricpc.bench.definitions.registry import ROWS
+from fabricpc.bench.run.runner import TrialResult
+from fabricpc.bench.stats.summary import summarize_row
+from fabricpc.bench.results.writer import validate, write_trials_csv
 
 ROW = ROWS["mnist-mlp-spc"]
 
@@ -181,7 +181,7 @@ def test_trials_csv_shows_the_epc_regime_band_after_training(tmp_path):
 
 
 def test_trials_csv_shows_where_a_followed_rate_control_ended(tmp_path):
-    from fabricpc.bench.writer import write_trials_csv
+    from fabricpc.bench.results.writer import write_trials_csv
 
     row_dir = tmp_path / "r"
     row_dir.mkdir()

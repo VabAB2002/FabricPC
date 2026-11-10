@@ -5,8 +5,8 @@ import json
 import jax
 import pytest
 
-from fabricpc.bench.registry import ROWS
-from fabricpc.bench.runner import run_trial
+from fabricpc.bench.definitions.registry import ROWS
+from fabricpc.bench.run.runner import run_trial
 from tests.conftest import ListLoader
 
 
@@ -93,7 +93,7 @@ def test_trial_result_includes_the_compute_count(tmp_path, rng_key):
 
 def test_trial_can_save_its_trained_params_to_the_zoo(tmp_path, rng_key):
     # The model zoo: trained weights that load back and give the same score.
-    from fabricpc.bench.zoo import load_params
+    from fabricpc.bench.run.zoo import load_params
     from fabricpc.training import evaluate
 
     row = ROWS["mnist-mlp-spc"]
@@ -186,7 +186,7 @@ def test_pc_trials_also_score_the_trained_model_with_a_plain_forward_pass(
     # PC evaluation lets the free output keep settling, which can make it
     # over-confident. So PC rows also report the one-pass score, under
     # forward_<name>, computed from the same trained weights.
-    from fabricpc.bench.zoo import load_params
+    from fabricpc.bench.run.zoo import load_params
     from fabricpc.training import evaluate
 
     row = ROWS["mnist-mlp-spc"]
@@ -243,7 +243,7 @@ def test_an_epc_row_can_follow_lambda_max(tmp_path, rng_key):
     # records what the rate did, so a reader can see the run stayed stable.
     import dataclasses
 
-    from fabricpc.bench.registry import RateControl
+    from fabricpc.bench.definitions.registry import RateControl
 
     row = dataclasses.replace(
         ROWS["mnist-mlp-epc"], rate_control=RateControl(target=0.2, every=1)

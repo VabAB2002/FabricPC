@@ -4,8 +4,8 @@ updates are, layer by layer, and how stiff the network is."""
 import jax
 import pytest
 
-from fabricpc.bench.diagnostics import backprop_alignment, stiffness
-from fabricpc.bench.registry import ROWS
+from fabricpc.bench.run.diagnostics import backprop_alignment, stiffness
+from fabricpc.bench.definitions.registry import ROWS
 from fabricpc.core import EPCInference
 
 BATCH = 8
@@ -109,7 +109,7 @@ class TestStiffness:
 def test_a_trial_records_both_at_the_start_and_the_end(tmp_path, rng_key):
     from tests.test_bench_runner import fake_mnist_loaders
 
-    from fabricpc.bench.runner import run_trial
+    from fabricpc.bench.run.runner import run_trial
 
     kw = dict(
         loaders=fake_mnist_loaders(rng_key),
@@ -131,7 +131,7 @@ def test_a_trial_records_both_at_the_start_and_the_end(tmp_path, rng_key):
 def test_diagnostics_can_be_turned_off(tmp_path, rng_key):
     from tests.test_bench_runner import fake_mnist_loaders
 
-    from fabricpc.bench.runner import run_trial
+    from fabricpc.bench.run.runner import run_trial
 
     result = run_trial(
         ROWS["mnist-mlp-spc"],
@@ -150,7 +150,7 @@ def test_trials_csv_shows_the_end_of_run_diagnostics(tmp_path):
     import csv
     import json
 
-    from fabricpc.bench.writer import write_trials_csv
+    from fabricpc.bench.results.writer import write_trials_csv
 
     row_dir = tmp_path / "r"
     row_dir.mkdir()

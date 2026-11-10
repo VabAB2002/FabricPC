@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
 
-PLANS_DIR = Path(__file__).parent / "plans"
+PLANS_DIR = Path(__file__).parent.parent / "plans"
 
 _PLAN_KEYS = {"name", "description", "defaults", "jobs"}
 _JOB_KEYS = {"id", "trials", "epochs", "zoo", "note"}
@@ -127,7 +127,7 @@ def load_plan(path) -> Plan:
 
 def job_rows(job_id: str) -> Optional[Tuple[str, ...]]:
     """The row ids a job runs, or None if the id is not in the registry."""
-    from fabricpc.bench.registry import COMPARISONS, ROWS
+    from fabricpc.bench.definitions.registry import COMPARISONS, ROWS
 
     if job_id in ROWS:
         return (job_id,)
@@ -167,7 +167,7 @@ def estimate_hours(job: Job, probes: Dict[str, dict]) -> Optional[float]:
 
     Training time scales with the epoch count; evaluation is taken as is.
     """
-    from fabricpc.bench.registry import ROWS
+    from fabricpc.bench.definitions.registry import ROWS
 
     rows = job_rows(job.id)
     if not rows or any(r not in probes for r in rows):

@@ -58,7 +58,7 @@ from pathlib import Path
 
 from fabricpc.bench.stats.band import attach_band
 from fabricpc.bench.run.isolate import run_trial_in_child
-from fabricpc.bench.results.manifest import describe_row, write_manifest
+from fabricpc.bench.run.manifest import describe_row, write_manifest
 from fabricpc.bench.stats.compare import compare_family
 from fabricpc.bench.results.refresh import refresh_results
 from fabricpc.bench.definitions.registry import COMPARISONS, ROWS
@@ -370,7 +370,7 @@ def cmd_smoke(args, command) -> int:
 
 def cmd_regress(args, command) -> int:
     """Tiny fixed-seed runs held to fixed lines (fabricpc.bench.regress)."""
-    from fabricpc.bench.stats import regress
+    from fabricpc.bench.cli import regress
 
     try:
         checks = regress.select(regress.CI_CHECKS, args.rows)

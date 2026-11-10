@@ -1,4 +1,4 @@
-"""Tests for the BPE Tiny Shakespeare transformer rows (fabricpc.bench.bpe)."""
+"""Tests for the BPE Tiny Shakespeare transformer rows (fabricpc.bench.definitions.bpe)."""
 
 import importlib.util
 from pathlib import Path
@@ -6,7 +6,7 @@ from pathlib import Path
 import jax.numpy as jnp
 import pytest
 
-from fabricpc.bench.registry import ALGORITHMS, COMPARISONS, ROWS
+from fabricpc.bench.definitions.registry import ALGORITHMS, COMPARISONS, ROWS
 
 FAMILY = "tinyshakespeare-bpe-transformer"
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -52,7 +52,7 @@ def test_bpe_factory_builds_the_demos_four_block_model(rng_key):
 
 
 def test_bpe_rows_use_the_demos_bpe_solver():
-    from fabricpc.bench import bpe
+    from fabricpc.bench.definitions import bpe
 
     for algo in ("spc", "backprop"):
         solver = bpe._solver_for(algo)
@@ -64,7 +64,7 @@ def test_bpe_rows_use_the_demos_bpe_solver():
 
 
 def test_bpe_learning_rate_is_a_cosine_decay_to_a_tenth():
-    from fabricpc.bench import bpe
+    from fabricpc.bench.definitions import bpe
 
     lr = bpe._lr_schedule(1000)
     peak = 1.676456563307537e-05
@@ -103,7 +103,7 @@ class _FakeBpe:
 
 
 def test_bpe_loaders_read_the_shared_cache_outside_the_repo(monkeypatch, tmp_path):
-    from fabricpc.bench import bpe
+    from fabricpc.bench.definitions import bpe
     from fabricpc.utils.data import dataloader
 
     monkeypatch.setattr(dataloader, "BpeDataLoader", _FakeBpe)
@@ -122,7 +122,7 @@ def test_bpe_loaders_read_the_shared_cache_outside_the_repo(monkeypatch, tmp_pat
 
 
 def test_bpe_cache_defaults_to_the_home_cache_not_the_repo(monkeypatch):
-    from fabricpc.bench import bpe
+    from fabricpc.bench.definitions import bpe
 
     monkeypatch.delenv("FABRICPC_BPE_DIR", raising=False)
     path = bpe.bpe_cache_dir()

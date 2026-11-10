@@ -8,9 +8,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from fabricpc.bench import registry, regress
+from fabricpc.bench.definitions import registry
+from fabricpc.bench.cli import regress
 from fabricpc.bench.__main__ import main as cli_main
-from fabricpc.bench.regress import Check, judge, run_regress
+from fabricpc.bench.cli.regress import Check, judge, run_regress
 from tests.test_bench_runner import fake_mnist_loaders
 
 REPO = Path(__file__).resolve().parents[1]

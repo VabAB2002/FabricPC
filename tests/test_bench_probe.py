@@ -5,9 +5,9 @@ import json
 
 import pytest
 
-from fabricpc.bench import registry
+from fabricpc.bench.definitions import registry
 from fabricpc.bench.__main__ import main
-from fabricpc.bench.probe import DEFAULT_PRICE_PER_HOUR, probe, probe_row
+from fabricpc.bench.run.probe import DEFAULT_PRICE_PER_HOUR, probe, probe_row
 from tests.test_bench_runner import fake_mnist_loaders
 
 

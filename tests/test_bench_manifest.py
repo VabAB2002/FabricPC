@@ -5,8 +5,8 @@ import json
 import jax
 
 import fabricpc
-from fabricpc.bench.manifest import SCHEMA_VERSION, write_manifest
-from fabricpc.bench.registry import ROWS
+from fabricpc.bench.run.manifest import SCHEMA_VERSION, write_manifest
+from fabricpc.bench.definitions.registry import ROWS
 
 
 def test_manifest_records_versions_hardware_and_the_command(tmp_path):
@@ -46,8 +46,8 @@ def test_manifest_records_the_git_commit_when_inside_a_repo(tmp_path):
 
 
 def test_row_description_includes_the_expected_score():
-    from fabricpc.bench.manifest import describe_row
-    from fabricpc.bench.registry import ROWS
+    from fabricpc.bench.run.manifest import describe_row
+    from fabricpc.bench.definitions.registry import ROWS
 
     judged = describe_row(ROWS["mnist-mlp-spc"])["reference"]
     assert judged["metric"] == "accuracy"
@@ -57,7 +57,7 @@ def test_row_description_includes_the_expected_score():
 
 def test_git_sha_falls_back_to_the_environment_when_git_cannot_say(monkeypatch):
     # Cloud jobs can run a copy of the code without its .git folder.
-    from fabricpc.bench import manifest
+    from fabricpc.bench.run import manifest
 
     def no_git(*args, **kwargs):
         raise OSError("git is not available")

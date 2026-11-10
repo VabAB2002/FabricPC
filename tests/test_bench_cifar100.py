@@ -1,10 +1,10 @@
-"""Tests for the CIFAR-100 VGG-5 rows (fabricpc.bench.cifar100)."""
+"""Tests for the CIFAR-100 VGG-5 rows (fabricpc.bench.definitions.cifar100)."""
 
 import jax
 import jax.numpy as jnp
 import pytest
 
-from fabricpc.bench.registry import ALGORITHMS, COMPARISONS, ROWS
+from fabricpc.bench.definitions.registry import ALGORITHMS, COMPARISONS, ROWS
 
 FAMILY = "cifar100-vgg5"
 
@@ -59,7 +59,7 @@ def test_cifar100_vgg5_only_differs_from_cifar10_in_the_output_layer(rng_key):
 
 def test_cifar100_rows_use_pcx_pc_ce_settings(rng_key):
     # pcx VGG5_PCN_CE_cifar100.yaml: T = 12 settling steps, hard tanh.
-    from fabricpc.bench import cifar100
+    from fabricpc.bench.definitions import cifar100
 
     solver = cifar100._solver_for("spc")
     assert solver.config["infer_steps"] == 12
@@ -71,7 +71,7 @@ def test_cifar100_rows_use_pcx_pc_ce_settings(rng_key):
 
 
 def test_cifar100_learning_rate_warms_up_then_decays_to_zero():
-    from fabricpc.bench import cifar100
+    from fabricpc.bench.definitions import cifar100
 
     lr = cifar100._lr_schedule(1000, cifar100._PC_PEAK_LR)
     assert float(lr(0)) == 0.0
@@ -102,7 +102,7 @@ def test_cifar100_pc_rows_have_the_safety_net():
 
 def test_cifar100_loaders_augment_training_images_only(monkeypatch):
     # Swap in a fake loader so the test does not need the dataset on disk.
-    from fabricpc.bench import cifar100
+    from fabricpc.bench.definitions import cifar100
     from fabricpc.utils.data import dataloader
 
     made = []
@@ -121,7 +121,7 @@ def test_cifar100_loaders_augment_training_images_only(monkeypatch):
 def test_cifar100_backprop_row_uses_pcx_backprop_weight_settings():
     # pcx tuned backprop on its own for CIFAR-100 (VGG5_BP_CE_cifar100.yaml):
     # a much smaller weight decay than its PC config, and a slightly lower rate.
-    from fabricpc.bench import cifar100
+    from fabricpc.bench.definitions import cifar100
 
     assert cifar100._weight_settings("backprop") == (2.1e-4, 2.2e-5)
     assert cifar100._weight_settings("spc") == (2.2e-4, 7.6e-3)

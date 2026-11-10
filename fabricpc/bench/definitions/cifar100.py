@@ -130,7 +130,7 @@ def _optimizer_for(algorithm: str):
     peak_lr, weight_decay = _weight_settings(algorithm)
 
     def make(total_steps: int) -> optax.GradientTransformation:
-        from fabricpc.bench.registry import _DEEP_ADAM_EPS
+        from fabricpc.bench.definitions.registry import _DEEP_ADAM_EPS
 
         return optax.adamw(
             _lr_schedule(total_steps, peak_lr),

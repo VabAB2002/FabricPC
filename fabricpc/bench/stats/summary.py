@@ -19,7 +19,7 @@ from typing import Dict, List, Optional
 import numpy as np
 
 from fabricpc.bench.stats.ci import mean_ci95, paired_ci95
-from fabricpc.bench.results.manifest import SCHEMA_VERSION
+from fabricpc.bench.run.manifest import SCHEMA_VERSION
 
 MIN_TRIALS = 2
 

@@ -11,8 +11,8 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from fabricpc.bench import rows_hopfield as rh
-from fabricpc.bench.registry import COMPARISONS, ROWS
+from fabricpc.bench.definitions import rows_hopfield as rh
+from fabricpc.bench.definitions.registry import COMPARISONS, ROWS
 
 FAMILY = "patterns64-hopfield"
 HOP_ROWS = [f"{FAMILY}-{a}" for a in ("spc", "epc", "backprop")]
@@ -244,7 +244,7 @@ def _small_loaders(seed):
 
 @pytest.mark.parametrize("row_id", HOP_ROWS)
 def test_a_trial_reports_recall_scores(tmp_path, row_id):
-    from fabricpc.bench.runner import run_trial
+    from fabricpc.bench.run.runner import run_trial
 
     result = run_trial(
         ROWS[row_id],
@@ -271,7 +271,7 @@ def test_every_row_beats_handing_back_the_probe(tmp_path, row_id):
     # The ePC row once scored exactly the noisy probe (its weights never
     # learned to denoise) and still looked like a normal row. A short run
     # on the real data must already beat the do-nothing baseline.
-    from fabricpc.bench.runner import run_trial
+    from fabricpc.bench.run.runner import run_trial
 
     result = run_trial(
         ROWS[row_id],

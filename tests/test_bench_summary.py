@@ -6,8 +6,8 @@ import math
 
 import pytest
 
-from fabricpc.bench.runner import TrialResult
-from fabricpc.bench.summary import compare_rows, summarize_row
+from fabricpc.bench.run.runner import TrialResult
+from fabricpc.bench.stats.summary import compare_rows, summarize_row
 
 
 def write_trials(out_dir, row_id, accuracies, *, algorithm="spc", seed_step=1000):

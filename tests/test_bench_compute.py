@@ -3,8 +3,8 @@ weight update costs under each algorithm."""
 
 import pytest
 
-from fabricpc.bench.compute import count_compute
-from fabricpc.bench.registry import ROWS
+from fabricpc.bench.run.compute import count_compute
+from fabricpc.bench.definitions.registry import ROWS
 
 # The MNIST MLP: three weight matrices, 784x256, 256x64, 64x10.
 MLP_WEIGHTS = 784 * 256 + 256 * 64 + 64 * 10
@@ -101,7 +101,7 @@ def test_fused_pool_on_an_odd_map_counts_the_real_conv_size(rng_key):
     # Tiny-ImageNet VGG-5: conv4 takes conv3's 7x7 map, its SAME conv makes
     # 7x7 again, and the 2x2 pool rounds that down to 3x3. The conv still
     # runs at all 49 positions, not at the 36 that "3 times 2" would give.
-    from fabricpc.bench.compute import _flops_one_pass_for_edge
+    from fabricpc.bench.run.compute import _flops_one_pass_for_edge
 
     params, structure = build("tinyimagenet-vgg5-backprop", rng_key)
     assert structure.nodes["conv4"].node_info.shape == (3, 3, 512)
