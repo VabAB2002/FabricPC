@@ -85,7 +85,7 @@ def _family_of(row_id: str) -> str:
 
 def _registry_metric(row_id: str):
     try:
-        from fabricpc.bench.registry import ROWS
+        from fabricpc.bench.definitions.registry import ROWS
     except Exception:  # the report should work even if the registry cannot load
         return None
     row = ROWS.get(row_id)
@@ -414,7 +414,7 @@ def _depth_blocks(families, root) -> list:
     tagged with the results folder its family sits in, so the same row
     run in two places shows up twice instead of one silently winning."""
     try:
-        from fabricpc.bench.deep import depth_table
+        from fabricpc.bench.definitions.deep import depth_table
 
         loaded = []
         for folder, dirs in families:
