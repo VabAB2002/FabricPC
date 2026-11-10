@@ -13,7 +13,7 @@ from typing import Dict, List, Optional
 import jax
 
 from fabricpc.bench.run.compute import count_compute
-from fabricpc.bench.results.manifest import SCHEMA_VERSION
+from fabricpc.bench.run.manifest import SCHEMA_VERSION
 from fabricpc.bench.run.diagnostics import diagnose
 from fabricpc.bench.run.measure import epc_regime, memory_snapshot, time_steps
 from fabricpc.bench.definitions.registry import BenchmarkRow

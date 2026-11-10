@@ -112,7 +112,7 @@ def _device() -> Dict[str, object]:
 
 
 def _git_sha() -> Optional[str]:
-    from fabricpc.bench.results.manifest import _git_sha as sha
+    from fabricpc.bench.run.manifest import _git_sha as sha
 
     return sha()
 

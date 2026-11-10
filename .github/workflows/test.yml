@@ -81,7 +81,7 @@ jobs:
         # Tiny fixed-seed runs (MNIST MLP, MNIST autoencoder, 64-bit
         # Hopfield; sPC, ePC and backprop), each mean held to a line set
         # from real runs with a wide margin. Catches a change that quietly
-        # makes results worse. See fabricpc/bench/regress.py.
+        # makes results worse. See fabricpc/bench/cli/regress.py.
         run: python -m fabricpc.bench regress --out regress-results
       - name: Check the regression result files are complete
         run: python -m fabricpc.bench validate regress-results
