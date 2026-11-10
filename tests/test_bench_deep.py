@@ -1,9 +1,9 @@
-"""Tests for the deep FC-ResNet rows (fabricpc.bench.deep)."""
+"""Tests for the deep FC-ResNet rows (fabricpc.bench.definitions.deep)."""
 
 import jax
 import pytest
 
-from fabricpc.bench.registry import ALGORITHMS, COMPARISONS, ROWS
+from fabricpc.bench.definitions.registry import ALGORITHMS, COMPARISONS, ROWS
 
 DEPTHS = (8, 16, 32, 64, 128)
 WIDTH = 64  # the demo's hidden width
@@ -87,7 +87,7 @@ def test_mupc_is_on_with_the_depth_factor(rng_key):
 
 
 def test_rows_use_the_demo_solver_settings(rng_key):
-    from fabricpc.bench import deep
+    from fabricpc.bench.definitions import deep
 
     assert deep.infer_steps(8) == 30
     assert deep.infer_steps(128) == 390
@@ -117,7 +117,7 @@ def test_pc_rows_have_the_safety_net_and_small_adam_epsilon():
 
 
 def test_depth_of_reads_the_registry_and_falls_back_to_the_id():
-    from fabricpc.bench.deep import depth_of
+    from fabricpc.bench.definitions.deep import depth_of
 
     assert depth_of("mnist-fcresnet64-epc") == 64
     assert depth_of("mnist-fcresnet12-spc") == 12  # not registered, id still says
@@ -125,7 +125,7 @@ def test_depth_of_reads_the_registry_and_falls_back_to_the_id():
 
 
 def test_depth_table_puts_depths_in_rows_and_methods_in_columns():
-    from fabricpc.bench.deep import depth_table
+    from fabricpc.bench.definitions.deep import depth_table
 
     def row(row_id, algo, mean, se=None):
         return {
@@ -153,7 +153,7 @@ def test_depth_table_puts_depths_in_rows_and_methods_in_columns():
 def test_report_shows_accuracy_against_depth(tmp_path):
     import json
 
-    from fabricpc.bench.report import build_report, render
+    from fabricpc.bench.results.report import build_report, render
 
     for depth, acc in ((8, 0.92), (128, 0.81)):
         d = tmp_path / f"mnist-fcresnet{depth}" / f"mnist-fcresnet{depth}-spc"
@@ -176,7 +176,7 @@ def test_depth_table_keeps_runs_from_different_results_folders_apart(tmp_path):
     # with its seed count.
     import json
 
-    from fabricpc.bench.report import build_report, render
+    from fabricpc.bench.results.report import build_report, render
 
     for folder, n, acc in (("a-gpu", 5, 0.97), ("b-mac", 1, 0.31)):
         d = tmp_path / folder / "mnist-fcresnet128" / "mnist-fcresnet128-epc"
@@ -194,7 +194,7 @@ def test_depth_table_keeps_runs_from_different_results_folders_apart(tmp_path):
 
 
 def test_depth_table_rows_from_one_folder_have_no_folder_column():
-    from fabricpc.bench.deep import depth_table
+    from fabricpc.bench.definitions.deep import depth_table
 
     loaded = [
         {
@@ -213,7 +213,7 @@ def test_depth_table_rows_from_one_folder_have_no_folder_column():
 def test_depth_table_works_when_the_root_is_a_family_folder(tmp_path):
     import json
 
-    from fabricpc.bench.report import build_report, render
+    from fabricpc.bench.results.report import build_report, render
 
     d = tmp_path / "mnist-fcresnet8-spc"
     d.mkdir()

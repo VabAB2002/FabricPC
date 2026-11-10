@@ -1,7 +1,7 @@
 """Tests for how time_steps reads the training data."""
 
-from fabricpc.bench import measure
-from fabricpc.bench.registry import ROWS
+from fabricpc.bench.run import measure
+from fabricpc.bench.definitions.registry import ROWS
 from tests.test_bench_runner import fake_mnist_loaders
 
 

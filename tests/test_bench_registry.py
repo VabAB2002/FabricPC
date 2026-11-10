@@ -3,7 +3,7 @@
 import jax
 import pytest
 
-from fabricpc.bench.registry import ROWS, ALGORITHMS, BenchmarkRow
+from fabricpc.bench.definitions.registry import ROWS, ALGORITHMS, BenchmarkRow
 
 
 def test_mnist_mlp_rows_are_registered():
@@ -116,7 +116,7 @@ def test_vgg5_rows_use_one_pc_node_per_conv_block(rng_key):
 def test_transformer_rows_match_the_sponsors_tuned_char_demo(rng_key):
     # examples/transformer_v2_demo.py CHAR_DEFAULTS: norm-clip at 5.0 and
     # weights drawn from Normal(std=0.01517).
-    from fabricpc.bench import registry
+    from fabricpc.bench.definitions import registry
 
     spc_solver = registry._transformer_solver_for("spc")
     assert spc_solver.config["max_norm"] == 5.0
@@ -130,7 +130,7 @@ def test_transformer_rows_match_the_sponsors_tuned_char_demo(rng_key):
 
 
 def test_transformer_learning_rate_is_a_cosine_decay_to_a_tenth():
-    from fabricpc.bench import registry
+    from fabricpc.bench.definitions import registry
 
     lr = registry._char_transformer_lr(1000)
     peak = registry._CHAR_TRANSFORMER["lr"]
@@ -140,7 +140,7 @@ def test_transformer_learning_rate_is_a_cosine_decay_to_a_tenth():
 
 
 def test_each_family_compares_on_its_own_metric():
-    from fabricpc.bench.registry import COMPARISONS
+    from fabricpc.bench.definitions.registry import COMPARISONS
 
     assert COMPARISONS["tinyshakespeare-transformer"].metric == "perplexity"
     assert COMPARISONS["cifar10-vgg5"].metric == "accuracy"

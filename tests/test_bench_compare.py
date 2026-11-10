@@ -5,9 +5,9 @@ import json
 import numpy as np
 import pytest
 
-from fabricpc.bench.compare import arm_for_row, compare_family, planned_results
-from fabricpc.bench.registry import COMPARISONS, ROWS
-from fabricpc.bench.runner import run_trial
+from fabricpc.bench.stats.compare import arm_for_row, compare_family, planned_results
+from fabricpc.bench.definitions.registry import COMPARISONS, ROWS
+from fabricpc.bench.run.runner import run_trial
 from fabricpc.experiments import PlannedMultiContrastExperiment
 from fabricpc.experiments.statistics import paired_ttest
 from tests.test_bench_runner import fake_mnist_loaders

@@ -4,7 +4,7 @@ import dataclasses
 import json
 
 
-from fabricpc.bench import registry
+from fabricpc.bench.definitions import registry
 from fabricpc.bench.__main__ import main as cli_main
 from tests.test_bench_runner import fake_mnist_loaders
 
@@ -240,7 +240,7 @@ def test_zoo_flag_saves_a_checkpoint_per_trial(tmp_path, monkeypatch, rng_key):
 
 def _with_reference(monkeypatch, rng_key, value):
     """The tiny row, run the full way (2 seeds, 1 epoch), with an expected score."""
-    from fabricpc.bench.registry import Reference
+    from fabricpc.bench.definitions.registry import Reference
 
     tiny = register_tiny_row(monkeypatch, rng_key)
     ref = Reference(metric="accuracy", value=value, source="test")
@@ -295,7 +295,7 @@ def test_trial_flag_runs_just_that_one_trial(tmp_path, monkeypatch, rng_key):
 
 def test_by_default_each_trial_runs_in_its_own_process(tmp_path, monkeypatch, rng_key):
     from fabricpc.bench import __main__ as cli
-    from fabricpc.bench.runner import run_trial
+    from fabricpc.bench.run.runner import run_trial
 
     register_tiny_row(monkeypatch, rng_key)
     in_child = []

@@ -1,4 +1,4 @@
-"""Tests for the run queue (fabricpc.bench.queue).
+"""Tests for the run queue (fabricpc.bench.cli.queue).
 
 Most tests hand the queue a fake "run one job" function, so they are fast
 and only check the queue's own bookkeeping. One test runs a tiny MNIST-like
@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from fabricpc.bench import queue
+from fabricpc.bench.cli import queue
 from fabricpc.bench.__main__ import main as cli_main
 from tests.test_bench_cli_run import register_tiny_row
 

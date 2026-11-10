@@ -1,4 +1,4 @@
-"""Tests for ``fabricpc.bench.refresh``: fixing old results without retraining.
+"""Tests for ``fabricpc.bench.results.refresh``: fixing old results without retraining.
 
 The fake "old" folders here are written the way an older version of the
 suite wrote them: a FLOP count that is too small, an absolute checkpoint
@@ -14,13 +14,13 @@ import sys
 import jax
 import pytest
 
-from fabricpc.bench.compute import count_compute
-from fabricpc.bench.manifest import write_manifest
-from fabricpc.bench.refresh import refresh_results
-from fabricpc.bench.registry import ROWS
-from fabricpc.bench.runner import TrialResult
-from fabricpc.bench.summary import summarize_row
-from fabricpc.bench.writer import validate, write_trials_csv
+from fabricpc.bench.run.compute import count_compute
+from fabricpc.bench.run.manifest import write_manifest
+from fabricpc.bench.results.refresh import refresh_results
+from fabricpc.bench.definitions.registry import ROWS
+from fabricpc.bench.run.runner import TrialResult
+from fabricpc.bench.stats.summary import summarize_row
+from fabricpc.bench.results.writer import validate, write_trials_csv
 
 MLP = ROWS["mnist-mlp-spc"]
 CLOUD = "/teamspace/studios/this_studio/runs/old-run"
@@ -411,7 +411,7 @@ def test_a_row_whose_widths_changed_is_refused(tmp_path):
 
 def test_a_pairwise_compare_is_rebuilt(tmp_path):
     # Like cifar10-vgg5-plain-layout: two rows of a family and a pairwise file.
-    from fabricpc.bench.summary import compare_rows
+    from fabricpc.bench.stats.summary import compare_rows
 
     src = tmp_path / "old"
     for algo in ("epc", "backprop"):
@@ -428,8 +428,8 @@ def test_a_pairwise_compare_is_rebuilt(tmp_path):
 
 def test_a_family_compare_on_another_metric_is_rebuilt(tmp_path):
     # Like hopfield-mac-check's compare-patterns64-hopfield-exact_recall_p20.
-    from fabricpc.bench.compare import compare_family
-    from fabricpc.bench.registry import COMPARISONS
+    from fabricpc.bench.stats.compare import compare_family
+    from fabricpc.bench.definitions.registry import COMPARISONS
 
     src = tmp_path / "old"
     for algo in ("spc", "epc", "backprop"):

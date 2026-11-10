@@ -1,10 +1,10 @@
-"""Tests for the Tiny-ImageNet VGG-5 rows (fabricpc.bench.tinyimagenet)."""
+"""Tests for the Tiny-ImageNet VGG-5 rows (fabricpc.bench.definitions.tinyimagenet)."""
 
 import jax
 import jax.numpy as jnp
 import pytest
 
-from fabricpc.bench.registry import ALGORITHMS, COMPARISONS, ROWS
+from fabricpc.bench.definitions.registry import ALGORITHMS, COMPARISONS, ROWS
 
 FAMILY = "tinyimagenet-vgg5"
 
@@ -73,7 +73,7 @@ def test_tinyimagenet_forward_pass_runs_on_a_56px_batch(rng_key):
 def test_tinyimagenet_rows_use_pcx_pc_ce_settings(rng_key):
     # pcx VGG5_PCN_CE_tinyimagenet.yaml: T = 7 settling steps, hard tanh, and
     # state SGD at 0.01004 with momentum 0.05, about 0.0106 without momentum.
-    from fabricpc.bench import tinyimagenet
+    from fabricpc.bench.definitions import tinyimagenet
 
     solver = tinyimagenet._solver_for("spc")
     assert solver.config["infer_steps"] == 7
@@ -87,7 +87,7 @@ def test_tinyimagenet_rows_use_pcx_pc_ce_settings(rng_key):
 
 def test_tinyimagenet_weight_settings_follow_pcx_per_method():
     # PC: VGG5_PCN_CE_tinyimagenet.yaml; backprop: VGG5_BP_CE_tinyimagenet.yaml.
-    from fabricpc.bench import tinyimagenet
+    from fabricpc.bench.definitions import tinyimagenet
 
     assert tinyimagenet._weight_settings("spc") == (4.5e-5, 1.4e-3)
     assert tinyimagenet._weight_settings("epc") == (4.5e-5, 1.4e-3)
@@ -95,7 +95,7 @@ def test_tinyimagenet_weight_settings_follow_pcx_per_method():
 
 
 def test_tinyimagenet_learning_rate_warms_up_then_decays_to_zero():
-    from fabricpc.bench import tinyimagenet
+    from fabricpc.bench.definitions import tinyimagenet
 
     lr = tinyimagenet._lr_schedule(1000, 4.5e-5)
     assert float(lr(0)) == 0.0
@@ -137,7 +137,7 @@ def test_tinyimagenet_pc_rows_have_the_safety_net():
 def test_tinyimagenet_loaders_crop_like_pcx(monkeypatch):
     # Training: random flip plus a random 56x56 window, no padding.
     # Testing: the val split (the test split has no labels), centre 56x56.
-    from fabricpc.bench import tinyimagenet
+    from fabricpc.bench.definitions import tinyimagenet
     from fabricpc.utils.data import dataloader
 
     made = []

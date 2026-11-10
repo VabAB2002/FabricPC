@@ -3,8 +3,8 @@
 import json
 import sys
 
-from fabricpc.bench import isolate
-from fabricpc.bench.registry import ROWS
+from fabricpc.bench.run import isolate
+from fabricpc.bench.definitions.registry import ROWS
 
 
 def _stub_child(monkeypatch, code):

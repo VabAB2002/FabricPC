@@ -8,8 +8,8 @@ import jax
 import jax.numpy as jnp
 import pytest
 
-from fabricpc.bench.metrics import reconstruction_mse, sparsity
-from fabricpc.bench.registry import COMPARISONS, ROWS
+from fabricpc.bench.definitions.metrics import reconstruction_mse, sparsity
+from fabricpc.bench.definitions.registry import COMPARISONS, ROWS
 from tests.conftest import ListLoader
 
 AE_ROWS = [f"mnist-autoencoder-{a}" for a in ("spc", "epc", "backprop")]
@@ -81,7 +81,7 @@ def test_autoencoder_is_784_128_32_128_784():
 
 
 def test_the_loader_gives_the_image_back_as_its_own_target():
-    from fabricpc.bench.registry import _AsReconstruction
+    from fabricpc.bench.definitions.registry import _AsReconstruction
 
     inner = ListLoader([(jnp.ones((2, 784)) * 0.3, jnp.eye(10)[:2])])
     (x, y), *_ = list(_AsReconstruction(inner))
@@ -91,7 +91,7 @@ def test_the_loader_gives_the_image_back_as_its_own_target():
 
 @pytest.mark.parametrize("row_id", AE_ROWS)
 def test_a_trial_reports_reconstruction_and_sparsity(tmp_path, rng_key, row_id):
-    from fabricpc.bench.runner import run_trial
+    from fabricpc.bench.run.runner import run_trial
 
     result = run_trial(
         ROWS[row_id],

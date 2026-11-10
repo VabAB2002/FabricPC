@@ -1,12 +1,12 @@
-"""Tests for the deeper CIFAR-10 conv rows (fabricpc.bench.rows_deep_convnets):
+"""Tests for the deeper CIFAR-10 conv rows (fabricpc.bench.definitions.rows_deep_convnets):
 cifar10-vgg7, cifar10-vgg9 and cifar10-resnet18lean."""
 
 import jax
 import optax
 import pytest
 
-from fabricpc.bench import registry
-from fabricpc.bench.registry import ALGORITHMS, COMPARISONS, ROWS
+from fabricpc.bench.definitions import registry
+from fabricpc.bench.definitions.registry import ALGORITHMS, COMPARISONS, ROWS
 
 VGG_FAMILIES = {"cifar10-vgg7": 7, "cifar10-vgg9": 9}
 

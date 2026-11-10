@@ -12,10 +12,10 @@ import pytest
 from scipy import stats
 
 from fabricpc.bench.__main__ import main
-from fabricpc.bench.ci import mean_ci95, paired_ci95, t_critical
-from fabricpc.bench.compare import compare_family
-from fabricpc.bench.registry import COMPARISONS
-from fabricpc.bench.summary import compare_rows, summarize_row
+from fabricpc.bench.stats.ci import mean_ci95, paired_ci95, t_critical
+from fabricpc.bench.stats.compare import compare_family
+from fabricpc.bench.definitions.registry import COMPARISONS
+from fabricpc.bench.stats.summary import compare_rows, summarize_row
 from tests.test_bench_summary import write_trials
 
 

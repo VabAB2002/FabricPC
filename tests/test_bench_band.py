@@ -1,12 +1,12 @@
-"""Tests for the pass/fail band in fabricpc.bench.band."""
+"""Tests for the pass/fail band in fabricpc.bench.stats.band."""
 
 import dataclasses
 
 import pytest
 
-from fabricpc.bench.band import DEFAULT_FLOOR, check_band
-from fabricpc.bench.registry import ROWS, Reference
-from fabricpc.bench.summary import RowSummary
+from fabricpc.bench.stats.band import DEFAULT_FLOOR, check_band
+from fabricpc.bench.definitions.registry import ROWS, Reference
+from fabricpc.bench.stats.summary import RowSummary
 
 
 def _row(value=0.98, floor=DEFAULT_FLOOR, metric="accuracy", n_trials=5):

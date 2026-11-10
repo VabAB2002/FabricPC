@@ -1,8 +1,8 @@
-"""Tests for the memory readings in fabricpc.bench.measure."""
+"""Tests for the memory readings in fabricpc.bench.run.measure."""
 
 import jax
 
-from fabricpc.bench import measure
+from fabricpc.bench.run import measure
 
 
 class _FakeDevice:
@@ -49,7 +49,7 @@ def test_step_memory_comes_from_the_compiled_training_step(rng_key):
     # The process-wide peak includes compile scratch space (cuDNN autotuning on
     # GPU), which is the same for every algorithm. The compiled step's own
     # memory is what actually differs between backprop and PC.
-    from fabricpc.bench.registry import ROWS
+    from fabricpc.bench.definitions.registry import ROWS
     from tests.test_bench_runner import fake_mnist_loaders
 
     sizes = {}
@@ -79,7 +79,7 @@ def test_step_memory_comes_from_the_compiled_training_step(rng_key):
 
 
 def test_step_memory_is_none_when_the_step_cannot_be_analysed(monkeypatch, rng_key):
-    from fabricpc.bench.registry import ROWS
+    from fabricpc.bench.definitions.registry import ROWS
     from tests.test_bench_runner import fake_mnist_loaders
 
     monkeypatch.setattr(measure, "make_train_step", lambda *a, **k: (lambda *x: x))
@@ -101,7 +101,7 @@ def test_step_memory_is_none_when_the_step_cannot_be_analysed(monkeypatch, rng_k
 
 def test_timing_compiles_the_step_once_and_reports_its_memory(monkeypatch, rng_key):
     # The step is compiled once; timing and the memory report share it.
-    from fabricpc.bench.registry import ROWS
+    from fabricpc.bench.definitions.registry import ROWS
     from tests.test_bench_runner import fake_mnist_loaders
 
     lowered = []
@@ -142,7 +142,7 @@ def test_timing_compiles_the_step_once_and_reports_its_memory(monkeypatch, rng_k
 
 
 def test_epc_regime_labels_how_pc_like_an_epc_run_is(rng_key):
-    from fabricpc.bench.registry import ROWS
+    from fabricpc.bench.definitions.registry import ROWS
     from tests.test_bench_runner import fake_mnist_loaders
 
     loader, _ = fake_mnist_loaders(rng_key)
