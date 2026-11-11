@@ -11,6 +11,7 @@ from typing import Callable, Dict, Mapping, Optional, Tuple
 import jax
 import optax
 
+from fabricpc.bench.definitions.mnist import load_mnist
 from fabricpc.bench.definitions.bpe import tinyshakespeare_bpe_transformer_family
 from fabricpc.bench.definitions.cifar100 import cifar100_vgg5_family
 from fabricpc.bench.definitions.deep import fcresnet_depth_family
@@ -186,6 +187,10 @@ def _flat_image_loaders(dataset: str, batch_size: int) -> LoaderFactory:
 
     def build(seed: int):
         # Imported here so the registry can be listed without tensorflow.
+
+        if dataset == "mnist":
+            return load_mnist(batch_size=batch_size, train=True), load_mnist(batch_size=batch_size, train=False)
+
         from fabricpc.utils.data import dataloader
 
         loader_cls = {
@@ -672,3 +677,4 @@ COMPARISONS: Dict[str, Comparison] = {
     family: _family_comparison(family)
     for family in dict.fromkeys(row_id.rsplit("-", 1)[0] for row_id in ROWS)
 }
+
