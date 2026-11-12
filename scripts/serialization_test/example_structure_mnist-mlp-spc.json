@@ -1,0 +1,242 @@
+{
+ "format": "fabricpc-model",
+ "format_version": 1,
+ "fabricpc_version": "0.6.0",
+ "nodes": [
+  {
+   "name": "pixels",
+   "class": "fabricpc.nodes.identity.IdentityNode",
+   "shape": [
+    784
+   ],
+   "activation": {
+    "__class__": "fabricpc.core.activations.IdentityActivation",
+    "config": {}
+   },
+   "energy": {
+    "__class__": "fabricpc.core.energy.GaussianEnergy",
+    "config": {
+     "precision": 1.0
+    }
+   },
+   "latent_init": {
+    "__class__": "fabricpc.core.initializers.NormalInitializer",
+    "config": {
+     "mean": 0.0,
+     "std": 0.05,
+     "gain": 1.0
+    }
+   },
+   "weight_init": null,
+   "config": {
+    "scale": 1.0
+   },
+   "mupc": null
+  },
+  {
+   "name": "hidden1",
+   "class": "fabricpc.nodes.linear.Linear",
+   "shape": [
+    256
+   ],
+   "activation": {
+    "__class__": "fabricpc.core.activations.SigmoidActivation",
+    "config": {}
+   },
+   "energy": {
+    "__class__": "fabricpc.core.energy.GaussianEnergy",
+    "config": {
+     "precision": 1.0
+    }
+   },
+   "latent_init": {
+    "__class__": "fabricpc.core.initializers.NormalInitializer",
+    "config": {
+     "mean": 0.0,
+     "std": 0.05,
+     "gain": 1.0
+    }
+   },
+   "weight_init": {
+    "__class__": "fabricpc.core.initializers.XavierInitializer",
+    "config": {
+     "distribution": "normal",
+     "gain": 1.0
+    }
+   },
+   "config": {
+    "use_bias": true,
+    "flatten_input": false
+   },
+   "mupc": null
+  },
+  {
+   "name": "hidden2",
+   "class": "fabricpc.nodes.linear.Linear",
+   "shape": [
+    64
+   ],
+   "activation": {
+    "__class__": "fabricpc.core.activations.SigmoidActivation",
+    "config": {}
+   },
+   "energy": {
+    "__class__": "fabricpc.core.energy.GaussianEnergy",
+    "config": {
+     "precision": 1.0
+    }
+   },
+   "latent_init": {
+    "__class__": "fabricpc.core.initializers.NormalInitializer",
+    "config": {
+     "mean": 0.0,
+     "std": 0.05,
+     "gain": 1.0
+    }
+   },
+   "weight_init": {
+    "__class__": "fabricpc.core.initializers.XavierInitializer",
+    "config": {
+     "distribution": "normal",
+     "gain": 1.0
+    }
+   },
+   "config": {
+    "use_bias": true,
+    "flatten_input": false
+   },
+   "mupc": null
+  },
+  {
+   "name": "class",
+   "class": "fabricpc.nodes.linear.Linear",
+   "shape": [
+    10
+   ],
+   "activation": {
+    "__class__": "fabricpc.core.activations.SoftmaxActivation",
+    "config": {}
+   },
+   "energy": {
+    "__class__": "fabricpc.core.energy.CrossEntropyEnergy",
+    "config": {
+     "eps": 1e-07,
+     "axis": -1
+    }
+   },
+   "latent_init": {
+    "__class__": "fabricpc.core.initializers.NormalInitializer",
+    "config": {
+     "mean": 0.0,
+     "std": 0.05,
+     "gain": 1.0
+    }
+   },
+   "weight_init": {
+    "__class__": "fabricpc.core.initializers.XavierInitializer",
+    "config": {
+     "distribution": "normal",
+     "gain": 1.0
+    }
+   },
+   "config": {
+    "use_bias": true,
+    "flatten_input": false
+   },
+   "mupc": null
+  }
+ ],
+ "edges": [
+  {
+   "source": "pixels",
+   "target": "hidden1",
+   "slot": "in"
+  },
+  {
+   "source": "hidden1",
+   "target": "hidden2",
+   "slot": "in"
+  },
+  {
+   "source": "hidden2",
+   "target": "class",
+   "slot": "in"
+  }
+ ],
+ "task_map": {
+  "x": "pixels",
+  "y": "class"
+ },
+ "node_order": [
+  "pixels",
+  "hidden1",
+  "hidden2",
+  "class"
+ ],
+ "schedule": [
+  "pixels",
+  "hidden1",
+  "hidden2",
+  "class"
+ ],
+ "unroll": null,
+ "inference": {
+  "__class__": "fabricpc.core.inference.InferenceSGD",
+  "config": {
+   "eta_infer": 0.05,
+   "infer_steps": 20,
+   "latent_decay": 0.0
+  }
+ },
+ "graph_state_initializer": {
+  "__class__": "fabricpc.graph_initialization.state_initializer.FeedforwardStateInit",
+  "config": {}
+ },
+ "weights": {
+  "hidden1|weights|pixels->hidden1:in": {
+   "shape": [
+    784,
+    256
+   ],
+   "dtype": "float32"
+  },
+  "hidden1|biases|b": {
+   "shape": [
+    1,
+    256
+   ],
+   "dtype": "float32"
+  },
+  "hidden2|weights|hidden1->hidden2:in": {
+   "shape": [
+    256,
+    64
+   ],
+   "dtype": "float32"
+  },
+  "hidden2|biases|b": {
+   "shape": [
+    1,
+    64
+   ],
+   "dtype": "float32"
+  },
+  "class|weights|hidden2->class:in": {
+   "shape": [
+    64,
+    10
+   ],
+   "dtype": "float32"
+  },
+  "class|biases|b": {
+   "shape": [
+    1,
+    10
+   ],
+   "dtype": "float32"
+  }
+ },
+ "metadata": {
+  "source": "mnist-mlp-spc"
+ }
+}
