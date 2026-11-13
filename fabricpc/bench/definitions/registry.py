@@ -189,8 +189,10 @@ def _flat_image_loaders(dataset: str, batch_size: int) -> LoaderFactory:
         # Imported here so the registry can be listed without tensorflow.
 
         if dataset == "mnist":
-            return load_mnist(batch_size=batch_size, train=True), load_mnist(batch_size=batch_size, train=False)
-
+            return (
+                load_mnist(batch_size=batch_size, train=True, seed=seed),
+                load_mnist(batch_size=batch_size, train=False, seed=seed),
+            )
         from fabricpc.utils.data import dataloader
 
         loader_cls = {
