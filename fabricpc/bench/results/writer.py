@@ -17,7 +17,7 @@ import json
 from pathlib import Path
 from typing import List
 
-from fabricpc.bench.run.manifest import SCHEMA_VERSION
+from fabricpc.bench.run.manifest import SCHEMA_VERSION, trial_files, trial_number
 
 # Columns in the order people read them; metric columns go after "status".
 _LEAD = ["trial", "seed", "status", "num_epochs"]
@@ -45,7 +45,7 @@ _TAIL = [
 
 
 def _trial_files(row_dir: Path) -> List[Path]:
-    return sorted(row_dir.glob("trial*.json"), key=lambda p: int(p.stem[5:]))
+    return trial_files(row_dir)
 
 
 def _last_line(text) -> str:
@@ -121,6 +121,9 @@ def _validate_row(row_dir: Path, problems: List[str]) -> None:
                 problems.append(f"{manifest_path}: row id does not match {row_id}")
 
     files = _trial_files(row_dir)
+    for path in sorted(row_dir.glob("trial*.json")):
+        if trial_number(path) is None:
+            problems.append(f"{path}: not a trialN.json name; ignored")
     n_ok = 0
     for path in files:
         trial = _load(path, problems)
@@ -129,7 +132,7 @@ def _validate_row(row_dir: Path, problems: List[str]) -> None:
         _check_version(path, trial, problems)
         if trial.get("row_id") != row_id:
             problems.append(f"{path}: row_id is {trial.get('row_id')}, not {row_id}")
-        if trial.get("trial") != int(path.stem[5:]):
+        if trial.get("trial") != trial_number(path):
             problems.append(f"{path}: trial number does not match the file name")
         if seeds is not None and trial.get("seed") not in seeds:
             problems.append(f"{path}: seed {trial.get('seed')} is not in the manifest")
