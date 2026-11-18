@@ -219,8 +219,11 @@ def _run_one(job: Job, entry: dict, out, run_main: RunMain, argv_opts) -> bool:
         try:
             code = run_main(argv)
         except SystemExit as e:  # argparse rejected the job's arguments
-            code = e.code if isinstance(e.code, int) else 2
-            entry["message"] = f"the run command refused the arguments (exit {code})"
+            code = 0 if e.code is None else e.code if isinstance(e.code, int) else 2
+            if code != 0:
+                entry["message"] = (
+                    f"the run command refused the arguments (exit {code})"
+                )
     except KeyboardInterrupt:  # Ctrl-C or kill (see _run_with_signals)
         raise
     except Exception as e:  # one broken job must not take the queue down
