@@ -332,13 +332,15 @@ def _write_row(plan, out_root, *, sha, command):
     write_trials_csv(out_root, row_id)
     n_ok = sum(t.get("status") == "ok" for t in new)
     band_notes = []
-    if n_ok >= MIN_TRIALS and row_id in ROWS:
-        judged = attach_band(out_root, ROWS[row_id], summarize_row(out_root, row_id))
-        before, after = _old_band(src_row), (judged.band or {}).get("status")
-        if before != after:
-            band_notes.append(
-                f"band re-judged against today's reference: {before} -> {after}"
-            )
+    if n_ok >= MIN_TRIALS:
+        summary = summarize_row(out_root, row_id)  # every row keeps its summary
+        if row_id in ROWS:  # only a registered row has a band to re-judge
+            judged = attach_band(out_root, ROWS[row_id], summary)
+            before, after = _old_band(src_row), (judged.band or {}).get("status")
+            if before != after:
+                band_notes.append(
+                    f"band re-judged against today's reference: {before} -> {after}"
+                )
 
     if manifest is not None:
         fields = {c["field"] for t in new for c in t["refresh"][-1]["changes"]}
