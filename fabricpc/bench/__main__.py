@@ -85,7 +85,12 @@ def _parser() -> argparse.ArgumentParser:
         "the results folder",
     )
     p.add_argument("--dry-run", action="store_true", help="show the row, do not train")
-    p.add_argument("--out", default="results", help="where result files go")
+    p.add_argument(
+        "--out",
+        default="results",
+        help="where result files go (smoke and regress: results/smoke, "
+        "results/regress)",
+    )
     p.add_argument("--trials", type=int, help="how many seeds to run")
     p.add_argument("--epochs", type=float, help="override the row's epoch count")
     p.add_argument("--warmup", type=int, default=5, help="untimed steps")
@@ -369,8 +374,19 @@ def cmd_report(args, argv) -> int:
     return 0
 
 
+def _own_out(args, command, folder: str) -> None:
+    """Give smoke/regress their own folder when --out was not typed.
+
+    They start fresh runs (no resume), which delete a row's old trial files,
+    so writing into the shared default "results" would wipe a real run.
+    """
+    if not any(a == "--out" or a.startswith("--out=") for a in command[3:]):
+        args.out = str(Path("results") / folder)
+
+
 def cmd_smoke(args, command) -> int:
     """A short real run that proves the whole pipeline still works."""
+    _own_out(args, command, "smoke")
     row = ROWS.get(args.row)
     if row is None:
         return _unknown_row(args.row)
@@ -400,6 +416,7 @@ def cmd_smoke(args, command) -> int:
 
 def cmd_regress(args, command) -> int:
     """Tiny fixed-seed runs held to fixed lines (fabricpc.bench.regress)."""
+    _own_out(args, command, "regress")
     from fabricpc.bench.cli import regress
 
     try:
@@ -441,6 +458,17 @@ def cmd_one_trial(row, args) -> int:
 def cmd_family(args, command) -> int:
     """Run every row of a family, then compare them."""
     family = COMPARISONS[args.target]
+    if args.trial is not None:
+        print(
+            f"--trial runs one trial of one row; '{family.id}' is a family. "
+            f"Pick one of its rows: {', '.join(family.rows)}. Nothing was run.",
+            file=sys.stderr,
+        )
+        return 2
+    if args.dry_run:
+        rows = [describe_row(ROWS[row_id]) for row_id in family.rows]
+        print(json.dumps(rows, indent=2))
+        return 0
     codes = [_run_one_row(ROWS[row_id], args, command) for row_id in family.rows]
     try:
         _compare_family(family.id, args.out, args.metric or family.metric)

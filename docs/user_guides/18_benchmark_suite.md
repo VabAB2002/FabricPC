@@ -14,11 +14,11 @@ python -m fabricpc.bench mnist-mlp --trials 5          # a family: all three row
 python -m fabricpc.bench compare mnist-mlp             # compare results already on disk
 python -m fabricpc.bench validate results              # check a results folder is whole
 python -m fabricpc.bench report results --out report.md  # one readable page for a results folder
-python -m fabricpc.bench smoke                         # the short run CI uses
+python -m fabricpc.bench smoke                         # the short run CI uses (into results/smoke)
 python -m fabricpc.bench regress --out regress-results # CI's regression checks
 ```
 
-Results go under `--out` (default `results/`). Useful flags:
+Results go under `--out` (default `results/`; `smoke` and `regress` default to `results/smoke/` and `results/regress/` so they never wipe a real run). Useful flags:
 
 | Flag | Effect |
 |---|---|

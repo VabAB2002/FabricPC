@@ -476,3 +476,60 @@ def test_a_real_restart_skips_trials_that_already_finished(
     assert status["jobs"][0]["status"] == "done"
     assert status["validate"]["ok"] is True
     assert (out / "report.md").exists()
+
+
+# --- bad job arguments and exact epochs ---------------------------------------
+
+
+def test_a_job_whose_arguments_are_refused_fails_but_the_queue_goes_on(tmp_path):
+    """argparse's SystemExit inside one job is a failed job, not an interrupt."""
+    out = tmp_path / "out"
+    plan = queue.load_plan(
+        write_plan(tmp_path, [{"id": "mnist-mlp"}, {"id": "fashionmnist-mlp"}])
+    )
+
+    def run_main(argv):
+        if argv[0] == "mnist-mlp":
+            raise SystemExit(2)
+        return 0
+
+    code = queue.run_queue(
+        plan, out, run_main=run_main, continue_on_failure=True, finish=False
+    )
+
+    assert code == 1
+    status = read_status(out)
+    assert [j["status"] for j in status["jobs"]] == ["failed", "done"]
+    assert "refused the arguments" in status["jobs"][0]["message"]
+    assert status["state"] == "finished"
+
+
+def test_infinite_epochs_in_a_plan_is_refused(tmp_path):
+    path = tmp_path / "plan.json"
+    path.write_text('{"name": "p", "jobs": [{"id": "mnist-mlp", "epochs": Infinity}]}')
+    with pytest.raises(queue.PlanError, match="epochs"):
+        queue.load_plan(path)
+
+
+@pytest.mark.parametrize("flag,value", [("--warmup", "-1"), ("--timed", "0")])
+def test_bad_queue_step_counts_are_refused_before_anything_runs(
+    tmp_path, flag, value, capsys
+):
+    plan = write_plan(tmp_path, [{"id": "mnist-mlp"}])
+    calls = []
+    with pytest.raises(SystemExit) as e:
+        queue.cli(
+            [str(plan), "--out", str(tmp_path / "out"), flag, value],
+            run_main=lambda argv: calls.append(argv) or 0,
+        )
+    assert e.value.code == 2
+    assert flag in capsys.readouterr().err
+    assert calls == []
+
+
+def test_plan_epochs_are_passed_on_exactly(tmp_path):
+    plan = queue.load_plan(
+        write_plan(tmp_path, [{"id": "mnist-mlp", "epochs": 0.1234567}])
+    )
+    argv = queue.job_argv(plan.jobs[0], tmp_path)
+    assert float(argv[argv.index("--epochs") + 1]) == 0.1234567
