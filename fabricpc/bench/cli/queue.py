@@ -130,7 +130,7 @@ def job_argv(
     if job.trials is not None:
         argv += ["--trials", str(job.trials)]
     if job.epochs is not None:
-        argv += ["--epochs", f"{job.epochs:g}"]
+        argv += ["--epochs", repr(float(job.epochs))]
     if job.zoo:
         argv += ["--zoo", str(Path(out) / "zoo")]
     if warmup is not None:
@@ -216,8 +216,12 @@ def _run_one(job: Job, entry: dict, out, run_main: RunMain, argv_opts) -> bool:
     argv = job_argv(job, out, **argv_opts)
     print(f"queue: starting {job.id}: {' '.join(argv)}", flush=True)
     try:
-        code = run_main(argv)
-    except (KeyboardInterrupt, SystemExit):
+        try:
+            code = run_main(argv)
+        except SystemExit as e:  # argparse rejected the job's arguments
+            code = e.code if isinstance(e.code, int) else 2
+            entry["message"] = f"the run command refused the arguments (exit {code})"
+    except KeyboardInterrupt:  # Ctrl-C or kill (see _run_with_signals)
         raise
     except Exception as e:  # one broken job must not take the queue down
         code = None
@@ -444,7 +448,12 @@ def _split_only(values) -> List[str]:
 
 def cli(argv: Sequence[str], run_main: RunMain) -> int:
     """``python -m fabricpc.bench queue ...``. Returns the exit code."""
-    args = _parser().parse_args(list(argv))
+    parser = _parser()
+    args = parser.parse_args(list(argv))
+    if args.warmup is not None and args.warmup < 0:
+        parser.error("--warmup must be 0 or more")
+    if args.timed is not None and args.timed < 1:
+        parser.error("--timed must be 1 or more")
     try:
         plan = load_plan(args.plan)
     except PlanError as e:
