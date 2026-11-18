@@ -521,3 +521,35 @@ def test_without_fast_the_curve_and_diagnostics_stay_on(tmp_path, monkeypatch, r
 
     assert all(k.get("diagnostics", True) is True for k in seen)
     assert all(k.get("curve_batches") != 0 for k in seen)
+
+
+def test_smoke_and_regress_without_out_never_touch_the_results_folder(
+    tmp_path, monkeypatch
+):
+    """They start fresh runs, which delete a row's old trials, so by default
+    they get their own folders instead of the shared results/."""
+    from pathlib import Path
+
+    import fabricpc.bench.__main__ as cli
+    from fabricpc.bench.cli import regress
+
+    monkeypatch.chdir(tmp_path)
+    real = tmp_path / "results" / "mnist-mlp-spc" / "trial0.json"
+    real.parent.mkdir(parents=True)
+    real.write_text("{}")
+    outs = []
+    monkeypatch.setattr(
+        cli, "_run_row", lambda row, out, **kw: (outs.append(out), (True, None))[1]
+    )
+    monkeypatch.setattr(regress, "run_regress", lambda out, *a: outs.append(out) or 0)
+
+    main(["smoke"])
+    main(["regress"])
+    main(["smoke", "--out", "mine"])
+
+    assert outs == [
+        str(Path("results") / "smoke"),
+        str(Path("results") / "regress"),
+        "mine",
+    ]
+    assert real.exists()
