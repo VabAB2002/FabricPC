@@ -17,6 +17,7 @@ check that both give the same accuracy for the same seed.
 import functools
 import json
 import math
+import re
 from dataclasses import asdict
 from pathlib import Path
 from typing import Optional, Sequence, Tuple
@@ -144,8 +145,15 @@ def _with_ci(res: PlannedMultiContrastResults, contrast: dict) -> dict:
     return {**contrast, "ci95_low": low, "ci95_high": high}
 
 
+_METRIC_NAME = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.-]*")
+
+
 def compare_family(results_dir, comparison: Comparison, *, metric: str) -> dict:
     """Run a family's planned contrasts and write ``compare-<family>.json``."""
+    # The metric name becomes part of a file name, so it must be a plain name
+    # (an old result folder could hold something like "../../x").
+    if not isinstance(metric, str) or not _METRIC_NAME.fullmatch(metric):
+        raise ValueError(f"metric name {metric!r} is not a plain name")
     res = planned_results(
         results_dir,
         rows=comparison.rows,
