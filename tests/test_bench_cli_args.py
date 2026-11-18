@@ -74,3 +74,31 @@ def test_edge_values_that_work_today_are_still_allowed(capsys):
         ]
     )
     assert code == 0
+
+
+# --- a family id (several rows) -----------------------------------------------
+
+
+def test_dry_run_of_a_family_describes_its_rows_and_trains_nothing(
+    tmp_path, capsys, monkeypatch
+):
+    import json
+
+    import fabricpc.bench.__main__ as cli
+
+    trained = []
+    monkeypatch.setattr(cli, "_run_one_row", lambda *a: trained.append(a) or 0)
+    assert main(["mnist-mlp", "--dry-run", "--out", str(tmp_path)]) == 0
+    rows = json.loads(capsys.readouterr().out)
+    assert [r["id"] for r in rows] == list(cli.COMPARISONS["mnist-mlp"].rows)
+    assert trained == []
+
+
+def test_trial_with_a_family_is_refused(tmp_path, capsys, monkeypatch):
+    import fabricpc.bench.__main__ as cli
+
+    trained = []
+    monkeypatch.setattr(cli, "_run_one_row", lambda *a: trained.append(a) or 0)
+    assert main(["mnist-mlp", "--trial", "0", "--out", str(tmp_path)]) == 2
+    assert "Nothing was run" in capsys.readouterr().err
+    assert trained == []

@@ -441,6 +441,17 @@ def cmd_one_trial(row, args) -> int:
 def cmd_family(args, command) -> int:
     """Run every row of a family, then compare them."""
     family = COMPARISONS[args.target]
+    if args.trial is not None:
+        print(
+            f"--trial runs one trial of one row; '{family.id}' is a family. "
+            f"Pick one of its rows: {', '.join(family.rows)}. Nothing was run.",
+            file=sys.stderr,
+        )
+        return 2
+    if args.dry_run:
+        rows = [describe_row(ROWS[row_id]) for row_id in family.rows]
+        print(json.dumps(rows, indent=2))
+        return 0
     codes = [_run_one_row(ROWS[row_id], args, command) for row_id in family.rows]
     try:
         _compare_family(family.id, args.out, args.metric or family.metric)
