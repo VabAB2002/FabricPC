@@ -43,7 +43,7 @@ import fabricpc
 from fabricpc.bench.stats.band import attach_band
 from fabricpc.bench.stats.compare import compare_family
 from fabricpc.bench.run.compute import count_compute
-from fabricpc.bench.run.manifest import _git_sha
+from fabricpc.bench.run.manifest import _git_sha, trial_number
 from fabricpc.bench.definitions.registry import COMPARISONS, ROWS
 from fabricpc.bench.stats.summary import MIN_TRIALS, compare_rows, summarize_row
 from fabricpc.bench.results.writer import _trial_files, write_trials_csv
@@ -263,13 +263,23 @@ def _read_row(src_row):
 
 def _check_rows(row_dirs, out_root) -> None:
     """Refuse the whole folder up front, before anything is written."""
-    unknown, taken = [], []
+    unknown, taken, mismatched = [], [], []
     for src_row in row_dirs:
-        manifest, trials, _ = _read_row(src_row)
+        manifest, trials, files = _read_row(src_row)
+        # The new file is named from the "trial" value inside the old file,
+        # so it must be the same whole number as the old file name.
+        for t, p in zip(trials, files):
+            if t.get("trial") != trial_number(p) or isinstance(t.get("trial"), bool):
+                mismatched.append(str(p))
         if src_row.name not in ROWS and _needs_registry(src_row.name, manifest, trials):
             unknown.append(src_row.name)
         if any((out_root / src_row.name).glob("trial*.json")):
             taken.append(src_row.name)
+    if mismatched:
+        raise ValueError(
+            "the trial number inside these files does not match the file name: "
+            + ", ".join(mismatched)
+        )
     if unknown:
         raise ValueError(
             "these rows are not in the registry, so they cannot be refreshed: "

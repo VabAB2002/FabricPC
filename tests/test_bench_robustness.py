@@ -79,3 +79,17 @@ def test_the_registry_loads_without_tensorflow_datasets():
         "assert 'mnist-mlp-spc' in ROWS\n"
     )
     subprocess.run([sys.executable, "-c", code], check=True)
+
+
+def test_refresh_refuses_a_trial_number_that_does_not_match_its_file(tmp_path):
+    import pytest
+
+    src = tmp_path / "src"
+    row = make_row(src, "mnist-mlp-spc")
+    t = json.loads((row / "trial1.json").read_text())
+    t["trial"] = "/../../../ESCAPED"
+    (row / "trial1.json").write_text(json.dumps(t))
+
+    with pytest.raises(ValueError, match="does not match the file name"):
+        refresh_results(src, tmp_path / "out")
+    assert not list(tmp_path.rglob("ESCAPED*"))
