@@ -121,3 +121,32 @@ def test_setting_flags_are_refused_for_other_commands(capsys):
         main(["smoke", "--lr", "0.1"])
     assert e.value.code == 2
     assert "nothing was run" in capsys.readouterr().err
+
+
+def test_an_lr_override_really_changes_the_optimizer_step():
+    default = ROWS["mnist-mlp-backprop"]
+    changed = with_overrides(default, {"learning_rate": 0.01})
+    params = {"w": jnp.arange(4.0)}
+    grads = {"w": jnp.array([0.5, -1.0, 2.0, 0.1])}
+    a, b = default.optimizer_factory(100), changed.optimizer_factory(100)
+    ua, _ = a.update(grads, a.init(params), params)
+    ub, _ = b.update(grads, b.init(params), params)
+    assert jnp.allclose(ub["w"], 10 * ua["w"])  # adamw: the step scales with lr
+
+
+def test_a_batch_size_override_reaches_the_row():
+    changed = with_overrides(ROWS["mnist-mlp-backprop"], {"batch_size": 50})
+    assert changed.batch_size == 50
+
+
+def test_a_value_equal_to_the_default_is_no_change():
+    row = ROWS["mnist-mlp-spc"]
+    assert with_overrides(row, {"batch_size": 200}) is row
+
+
+def test_refresh_judges_an_overridden_run_with_its_own_settings():
+    from fabricpc.bench.results.refresh import _row_as_run
+
+    manifest = {"row": {"overrides": {"learning_rate": 0.01}}}
+    assert _row_as_run("mnist-mlp-spc", manifest).overrides == {"learning_rate": 0.01}
+    assert _row_as_run("mnist-mlp-spc", {"row": {}}) is ROWS["mnist-mlp-spc"]

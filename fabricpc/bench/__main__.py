@@ -85,7 +85,12 @@ SMOKE_FLOOR = 0.85  # half an epoch of MNIST lands well above this
 
 
 def _parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="python -m fabricpc.bench")
+    p = argparse.ArgumentParser(
+        prog="python -m fabricpc.bench",
+        epilog="Easiest start: 'python -m fabricpc.bench list', then "
+        "'python -m fabricpc.bench run --dataset mnist --architecture mlp "
+        "--method spc'. 'run', 'list' and 'queue' have their own --help.",
+    )
     p.add_argument(
         "target",
         help="'list', 'compare', 'smoke', 'regress', 'validate', 'refresh', "
@@ -227,7 +232,8 @@ def _check_numbers(args) -> list:
 def _unknown_row(row_id: str) -> int:
     print(
         f"Unknown row '{row_id}'. Run 'python -m fabricpc.bench list' "
-        "to see the available rows.",
+        "to see the benchmarks ('list --ids' for the short ids), or pick one "
+        "with 'run --dataset ... --architecture ...'.",
         file=sys.stderr,
     )
     return 2

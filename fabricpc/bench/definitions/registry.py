@@ -158,6 +158,12 @@ def with_overrides(row: BenchmarkRow, overrides: Mapping[str, float]) -> Benchma
     Raises ValueError, naming the row's own settings, for a setting the row
     does not have, or when the row cannot be rebuilt yet.
     """
+    # A value equal to the default is no change (and keeps the PASS/FAIL).
+    overrides = {
+        k: v
+        for k, v in overrides.items()
+        if k not in row.hyperparams or row.hyperparams[k] != v
+    }
     if not overrides:
         return row
     if row.rebuild is None:
