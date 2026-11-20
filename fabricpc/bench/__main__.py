@@ -70,7 +70,12 @@ from fabricpc.bench.run.manifest import describe_row, write_manifest
 from fabricpc.bench.stats.compare import compare_family
 from fabricpc.bench.results.refresh import refresh_results
 from fabricpc.bench.definitions.metrics import explain_metric
-from fabricpc.bench.definitions.registry import COMPARISONS, ROWS
+from fabricpc.bench.definitions.registry import (
+    COMPARISONS,
+    OVERRIDE_FLAGS,
+    ROWS,
+    with_overrides,
+)
 from fabricpc.bench.run.runner import finished_trial, run_trial, seed_for_trial
 from fabricpc.bench.stats.summary import MIN_TRIALS, compare_rows, summarize_row
 from fabricpc.bench.results.writer import validate, write_trials_csv
@@ -144,12 +149,39 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="run trials in this process instead of one process each",
     )
+    _add_override_flags(p)
     p.add_argument(
         "--price-per-hour",
         type=float,
         help="for 'probe': machine price in USD per hour (default 1.06, a T4)",
     )
     return p
+
+
+def _add_override_flags(p) -> None:
+    """--lr, --batch-size, ...: change a row's stored settings for one run."""
+    p.add_argument(
+        "--lr",
+        dest="learning_rate",
+        type=float,
+        help="learning rate (peak rate for rows with a schedule); "
+        "default: the row's own, see --dry-run",
+    )
+    p.add_argument("--weight-decay", type=float, help="optimizer weight decay")
+    p.add_argument("--batch-size", type=int, help="training and test batch size")
+    p.add_argument(
+        "--eta-infer", type=float, help="sPC: step size when settling the latents"
+    )
+    p.add_argument("--infer-steps", type=int, help="sPC: settling steps per batch")
+
+
+def _overrides(args) -> dict:
+    """The settings typed on the command line, by their names in the row."""
+    return {
+        name: getattr(args, name)
+        for name in OVERRIDE_FLAGS
+        if getattr(args, name, None) is not None
+    }
 
 
 def _check_numbers(args) -> list:
@@ -172,6 +204,17 @@ def _check_numbers(args) -> list:
     need("--trial", args.trial, lambda v: v >= 0, "0 or more")
     need("--curve-batches", args.curve_batches, lambda v: v >= 0, "0 or more")
     need("--floor", args.floor, lambda v: 0 <= v <= 1, "between 0 and 1")
+    finite_above_0 = lambda v: v > 0 and math.isfinite(v)  # noqa: E731
+    need("--lr", args.learning_rate, finite_above_0, "above 0")
+    need(
+        "--weight-decay",
+        args.weight_decay,
+        lambda v: v >= 0 and math.isfinite(v),
+        "0 or more",
+    )
+    need("--batch-size", args.batch_size, lambda v: v >= 1, "1 or more")
+    need("--eta-infer", args.eta_infer, finite_above_0, "above 0")
+    need("--infer-steps", args.infer_steps, lambda v: v >= 1, "1 or more")
     need(
         "--price-per-hour",
         args.price_per_hour,
@@ -484,11 +527,15 @@ def cmd_family(args, command) -> int:
             file=sys.stderr,
         )
         return 2
+    try:
+        rows = _family_rows_with_overrides(family, _overrides(args))
+    except ValueError as e:
+        print(f"{e}. Nothing was run.", file=sys.stderr)
+        return 2
     if args.dry_run:
-        rows = [describe_row(ROWS[row_id]) for row_id in family.rows]
-        print(json.dumps(rows, indent=2))
+        print(json.dumps([describe_row(r) for r in rows], indent=2))
         return 0
-    codes = [_run_one_row(ROWS[row_id], args, command) for row_id in family.rows]
+    codes = [_run_one_row(row, args, command) for row in rows]
     try:
         _compare_family(family.id, args.out, args.metric or family.metric)
     except ValueError as e:  # too few good trials to pair
@@ -497,12 +544,32 @@ def cmd_family(args, command) -> int:
     return max(codes)
 
 
+def _family_rows_with_overrides(family, overrides):
+    """Each row of a family with the settings it has. A setting only sPC
+    uses (like --infer-steps) changes the sPC row and leaves the others."""
+    rows = [ROWS[row_id] for row_id in family.rows]
+    unused = [k for k in overrides if not any(k in r.hyperparams for r in rows)]
+    if overrides and (unused or any(r.rebuild is None for r in rows)):
+        # Let with_overrides say what is wrong, for the first row it hits.
+        for r in rows:
+            with_overrides(r, overrides)
+    return [
+        with_overrides(r, {k: v for k, v in overrides.items() if k in r.hyperparams})
+        for r in rows
+    ]
+
+
 def cmd_run(args, command) -> int:
     if args.target in COMPARISONS and args.target not in ROWS:
         return cmd_family(args, command)
     row = ROWS.get(args.target)
     if row is None:
         return _unknown_row(args.target)
+    try:
+        row = with_overrides(row, _overrides(args))
+    except ValueError as e:
+        print(f"{e}. Nothing was run.", file=sys.stderr)
+        return 2
     if args.dry_run:
         print(json.dumps(describe_row(row), indent=2))
         return 0
@@ -511,7 +578,37 @@ def cmd_run(args, command) -> int:
     return _run_one_row(row, args, command)
 
 
+def _other_settings_in_folder(out, row):
+    """A message if ``out`` already holds this row run with other settings.
+
+    A run clears the row's old trials, so without this an --lr run would wipe
+    a default run (or the other way round), and --resume would mix them.
+    """
+    path = Path(out) / row.id / "manifest.json"
+    if not any((Path(out) / row.id).glob("trial*.json")) or not path.exists():
+        return None
+    try:
+        before = json.loads(path.read_text()).get("row", {}).get("overrides") or {}
+    except (OSError, ValueError, AttributeError):
+        return None
+    if before == dict(row.overrides):
+        return None
+
+    def says(d):
+        return ", ".join(f"{k}={v:g}" for k, v in d.items()) or "the defaults"
+
+    return (
+        f"{Path(out) / row.id} holds a run with {says(before)}; this run uses "
+        f"{says(row.overrides)}. Pick another --out so neither is lost. "
+        "Nothing was run."
+    )
+
+
 def _run_one_row(row, args, command) -> int:
+    clash = _other_settings_in_folder(args.out, row)
+    if clash:
+        print(clash, file=sys.stderr)
+        return 2
     n_trials = args.trials if args.trials is not None else row.n_trials
     failed, summary = _run_row(
         row,
@@ -581,6 +678,12 @@ def main(argv=None) -> int:
         if args.curve_batches is None:
             args.curve_batches = 0
     command = [sys.executable, "-m", "fabricpc.bench", *(argv or sys.argv[1:])]
+    commands = {"list", "compare", "smoke", "regress", "validate", "refresh"}
+    if _overrides(args) and args.target in commands | {"probe", "report"}:
+        parser.error(
+            f"--lr, --batch-size and the other setting flags are for running a "
+            f"row or family, not '{args.target}'; nothing was run"
+        )
     if args.target == "list":
         return cmd_list()
     if args.target == "compare":

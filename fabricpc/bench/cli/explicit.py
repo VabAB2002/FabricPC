@@ -49,6 +49,13 @@ _VALUE_FLAGS = (
         "test batches scored after every epoch for the learning curve "
         "(default 10; 0 turns the curve off)",
     ),
+    # The benchmark's tuned settings; defaults are stored with each row
+    # (see them with --dry-run). Changing one gives no PASS/FAIL verdict.
+    ("--lr", float, "learning rate (peak rate for rows with a schedule)"),
+    ("--weight-decay", float, "optimizer weight decay"),
+    ("--batch-size", int, "training and test batch size"),
+    ("--eta-infer", float, "sPC: step size when settling the latents"),
+    ("--infer-steps", int, "sPC: settling steps per batch"),
 )
 _SWITCHES = (
     ("--dry-run", "show the settings, do not train"),

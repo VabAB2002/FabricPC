@@ -67,6 +67,16 @@ Trial `i` uses seed `i·1000`, the same rule as `PlannedMultiContrastExperiment`
 
 Every mean in `summary.json` (metrics and timing) has `ci95_low` and `ci95_high` beside `mean`, `std`, `se` and `n`: a 95% confidence interval using the Student t value for n-1 degrees of freedom (`fabricpc.bench.ci`). With few seeds t is much bigger than 1.96: 2.78 for five seeds, 4.30 for three, 12.7 for two, so a two-seed interval is very wide on purpose. Each contrast in a compare file also gets `ci95_low` and `ci95_high` for its mean difference, worked out from the same per-seed differences as the paired t-test; the framework's contrast has the SE but no interval. Zero lies outside that interval exactly when p < 0.05. The intervals are not corrected for testing three contrasts at once. The CLI prints them as `95% CI [low, high]`.
 
+## Changing a row's settings
+
+Each row stores its tuned settings (learning rate, weight decay, batch size, and for sPC the settling step size and step count) as the benchmark's defaults. `--dry-run` shows them under `hyperparams`. To try other values for one run, give them as flags:
+
+```bash
+python -m fabricpc.bench run --dataset mnist --architecture mlp --method spc --lr 0.01 --infer-steps 10 --out results-lr01
+```
+
+The flags are `--lr`, `--weight-decay`, `--batch-size`, `--eta-infer` and `--infer-steps`. What changed is written to the manifest and every trial file (`overrides`). A run with changed settings gets no PASS/FAIL, because the expected score is for the defaults. A run will not write into a folder that holds the same row run with other settings, so use a separate `--out`. So far only the MLP rows can be changed this way; the others say so.
+
 ## The pass/fail band
 
 A full run (the row's own epoch count and seed count) is checked against the row's expected score when it has one:
