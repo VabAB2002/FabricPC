@@ -366,9 +366,22 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="check the plan and list ids not in the registry",
     )
-    p.add_argument("--in-process", action="store_true", help=argparse.SUPPRESS)
-    p.add_argument("--warmup", type=int, help=argparse.SUPPRESS)
-    p.add_argument("--timed", type=int, help=argparse.SUPPRESS)
+    # These three are passed on to every job's run command (see job_argv).
+    p.add_argument(
+        "--in-process",
+        action="store_true",
+        help="run each job's trials in this process instead of one process each",
+    )
+    p.add_argument(
+        "--warmup",
+        type=int,
+        help="untimed steps for every job (default: the run command's own, 5)",
+    )
+    p.add_argument(
+        "--timed",
+        type=int,
+        help="timed steps for every job (default: the run command's own, 30)",
+    )
     return p
 
 
