@@ -325,6 +325,31 @@ def _run_row(
     return failed, summary
 
 
+def _print_intro(row, out, n_trials: int, epochs) -> None:
+    """A few lines before a run starts: what runs, how it is judged, where
+    the results go and what to read at the end (Nov 17 demo feedback)."""
+    wanted = epochs if epochs is not None else row.train_config["num_epochs"]
+    print(
+        f"Benchmark: {row.id}  (dataset {row.dataset}, architecture {row.model}, "
+        f"method {row.algorithm})"
+    )
+    print(
+        f"Plan: {n_trials} seed{'s' if n_trials != 1 else ''} x {wanted:g} "
+        "epochs; each seed trains, then is scored on the test set."
+    )
+    meaning = explain_metric(row.metric)
+    print(f"Judged on: {row.metric}" + (f" - {meaning}" if meaning else ""))
+    if row.hyperparams:
+        settings = ", ".join(f"{k}={v:g}" for k, v in row.hyperparams.items())
+        changed = f"  (changed: {', '.join(row.overrides)})" if row.overrides else ""
+        print(f"Settings: {settings}{changed}")
+    print(
+        f"Results go to: {Path(out) / row.id}/. At the end: one RESULT line "
+        "(mean over seeds) and PASS/FAIL against the expected score.\n",
+        flush=True,
+    )
+
+
 def _print_headline(row, summary, verdict: str) -> None:
     """The one line to read first: the row's own metric, mean over seeds,
     then what that metric means."""
@@ -616,6 +641,7 @@ def _run_one_row(row, args, command) -> int:
         print(clash, file=sys.stderr)
         return 2
     n_trials = args.trials if args.trials is not None else row.n_trials
+    _print_intro(row, args.out, n_trials, args.epochs)
     failed, summary = _run_row(
         row,
         args.out,

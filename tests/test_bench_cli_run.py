@@ -574,3 +574,16 @@ def test_every_row_metric_has_a_plain_meaning():
     for row in registry.ROWS.values():
         assert explain_metric(row.metric), row.metric
     assert "20% of the bits flipped" in explain_metric("bit_accuracy_p20")
+
+
+def test_a_run_starts_with_a_short_intro(tmp_path, monkeypatch, rng_key, capsys):
+    register_tiny_row(monkeypatch, rng_key)
+    main(_tiny_args(tmp_path))
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[0].startswith("Benchmark: tiny-mlp-spc  (dataset tiny,")
+    assert lines[1] == (
+        "Plan: 2 seeds x 1 epochs; each seed trains, then is scored on the test set."
+    )
+    assert lines[2].startswith("Judged on: accuracy - share of test examples")
+    assert lines[3].startswith("Settings: learning_rate=0.001")
+    assert lines[4].startswith("Results go to: ")
