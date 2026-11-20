@@ -553,3 +553,24 @@ def test_smoke_and_regress_without_out_never_touch_the_results_folder(
         "mine",
     ]
     assert real.exists()
+
+
+def test_a_run_ends_with_one_headline_result_line(
+    tmp_path, monkeypatch, rng_key, capsys
+):
+    register_tiny_row(monkeypatch, rng_key)
+    main(_tiny_args(tmp_path))
+    out = capsys.readouterr().out
+    headline = [line for line in out.splitlines() if line.startswith("RESULT ")]
+    assert len(headline) == 1
+    assert headline[0].startswith("RESULT tiny-mlp-spc: accuracy ")
+    assert "over 2 seeds" in headline[0]
+    assert "accuracy: share of test examples" in out
+
+
+def test_every_row_metric_has_a_plain_meaning():
+    from fabricpc.bench.definitions.metrics import explain_metric
+
+    for row in registry.ROWS.values():
+        assert explain_metric(row.metric), row.metric
+    assert "20% of the bits flipped" in explain_metric("bit_accuracy_p20")

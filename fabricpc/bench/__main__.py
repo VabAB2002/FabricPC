@@ -62,6 +62,7 @@ from fabricpc.bench.run.isolate import run_trial_in_child
 from fabricpc.bench.run.manifest import describe_row, write_manifest
 from fabricpc.bench.stats.compare import compare_family
 from fabricpc.bench.results.refresh import refresh_results
+from fabricpc.bench.definitions.metrics import explain_metric
 from fabricpc.bench.definitions.registry import COMPARISONS, ROWS
 from fabricpc.bench.run.runner import finished_trial, run_trial, seed_for_trial
 from fabricpc.bench.stats.summary import MIN_TRIALS, compare_rows, summarize_row
@@ -242,8 +243,8 @@ def _run_row(
             **extra,
         )
         if result.status == "ok":
-            acc = result.metrics.get("accuracy")
-            shown = f"accuracy={acc:.4f}" if acc is not None else ""
+            value = result.metrics.get(row.metric)
+            shown = f"{row.metric}={value:.4f}" if value is not None else ""
             print(
                 f"{row.id} trial {trial}: {shown} step={result.step_time_ms:.2f}ms "
                 f"train={result.train_time_s:.1f}s"
@@ -258,20 +259,31 @@ def _run_row(
     summary = None
     if n_trials - failed >= MIN_TRIALS:
         summary = attach_band(out, row, summarize_row(out, row.id))
-        acc = summary.metrics.get("accuracy")
-        if acc:
-            print(
-                f"{row.id}: accuracy {acc['mean']:.4f} ± {acc['se']:.4f} SE, "
-                f"95% CI [{acc['ci95_low']:.4f}, {acc['ci95_high']:.4f}] "
-                f"(n={acc['n']}), step {summary.timing['step_time_ms']['mean']:.2f}ms"
-            )
         band = summary.band
         label = {"pass": "PASS", "fail": "FAIL"}.get(band["status"], "no verdict")
         pending = (
             " (band rule pending sponsor sign-off)" if band["pending_signoff"] else ""
         )
         print(f"{row.id}: band {label}: {band['reason']}{pending}")
+        _print_headline(row, summary, label)
     return failed, summary
+
+
+def _print_headline(row, summary, verdict: str) -> None:
+    """The one line to read first: the row's own metric, mean over seeds,
+    then what that metric means."""
+    m = summary.metrics.get(row.metric)
+    if not m:
+        return
+    step = summary.timing["step_time_ms"]["mean"]
+    print(
+        f"\nRESULT {row.id}: {row.metric} {m['mean']:.4f} ± {m['se']:.4f} "
+        f"(mean ± SE over {m['n']} seeds, 95% CI [{m['ci95_low']:.4f}, "
+        f"{m['ci95_high']:.4f}]), step {step:.2f} ms, band {verdict}"
+    )
+    meaning = explain_metric(row.metric)
+    if meaning:
+        print(f"  {row.metric}: {meaning}")
 
 
 def cmd_list() -> int:

@@ -49,3 +49,29 @@ def sparsity(node_names: Sequence[str], silent_below: float = SILENT_BELOW):
         return value, jnp.ones_like(value)
 
     return EvalMetric(fn=fn)
+
+
+# One plain line per headline metric, printed under a run's result so a
+# reader knows what the number means without opening the code.
+_MEANING = {
+    "accuracy": "share of test examples the model labels correctly (higher is better)",
+    "perplexity": "how unsure the model is about the next token; 1 is perfect "
+    "(lower is better)",
+    "reconstruction_mse": "mean squared error between each test image and the "
+    "model's rebuilt copy (lower is better)",
+}
+
+
+def explain_metric(name: str) -> str:
+    """What a metric means, in one plain line ('' if we have no wording)."""
+    if name in _MEANING:
+        return _MEANING[name]
+    kind, _, noise = name.rpartition("_p")
+    if kind in ("bit_accuracy", "exact_recall", "nearest_correct") and noise.isdigit():
+        what = {
+            "bit_accuracy": "share of pattern bits recalled correctly",
+            "exact_recall": "share of patterns recalled with every bit right",
+            "nearest_correct": "share of recalls closest to the right pattern",
+        }[kind]
+        return f"{what}, starting from {noise}% of the bits flipped (higher is better)"
+    return ""
