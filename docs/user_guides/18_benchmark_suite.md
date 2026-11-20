@@ -7,7 +7,9 @@ A **row** is one dataset, one model and one training algorithm, named `dataset-m
 ## Quick start
 
 ```bash
-python -m fabricpc.bench list                          # every row and family
+python -m fabricpc.bench list                          # every benchmark, with its metric
+python -m fabricpc.bench run --dataset mnist --architecture mlp --method spc  # one row, by name
+python -m fabricpc.bench run --dataset mnist --architecture mlp              # all methods, then compare
 python -m fabricpc.bench mnist-mlp-spc --dry-run       # a row's settings, no training
 python -m fabricpc.bench mnist-mlp-spc --trials 5      # one row, 5 seeds
 python -m fabricpc.bench mnist-mlp --trials 5          # a family: all three rows, then compare

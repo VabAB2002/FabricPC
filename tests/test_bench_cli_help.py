@@ -5,9 +5,15 @@ import argparse
 import pytest
 
 from fabricpc.bench.__main__ import _parser as main_parser
+from fabricpc.bench.cli.explicit import list_parser, run_parser
 from fabricpc.bench.cli.queue import _parser as queue_parser
 
-PARSERS = {"main": main_parser, "queue": queue_parser}
+PARSERS = {
+    "main": main_parser,
+    "queue": queue_parser,
+    "run": run_parser,
+    "list": list_parser,
+}
 
 
 @pytest.mark.parametrize("name", PARSERS)

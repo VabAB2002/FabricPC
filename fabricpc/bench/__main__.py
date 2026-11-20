@@ -1,6 +1,8 @@
 """Command line for the benchmark suite.
 
-    python -m fabricpc.bench list
+    python -m fabricpc.bench list [--dataset D] [--ids]
+    python -m fabricpc.bench run --dataset D --architecture A [--method M]
+                                 [--trials N] [--epochs E] [--out DIR] ...
     python -m fabricpc.bench <row-id> [--trials N] [--epochs E] [--out DIR]
                                       [--resume] [--zoo DIR]
     python -m fabricpc.bench <row-id> --dry-run
@@ -16,6 +18,11 @@
                                                    [--format md|html]
     python -m fabricpc.bench queue <plan.json> --out DIR [--dry-run]
                                    [--only IDS] [--continue-on-failure]
+
+``run`` picks a benchmark with separate flags and is the same as the short
+row id (``run --dataset mnist --architecture mlp --method spc`` is
+``mnist-mlp-spc``; without ``--method`` it is the family ``mnist-mlp``).
+``run``, ``list`` and ``queue`` each have their own ``--help``.
 
 Running a row writes one JSON file per trial, a manifest, ``trials.csv``
 (every trial on one line), and (with two or more good trials) a summary
@@ -549,10 +556,20 @@ def cmd_probe(args, argv) -> int:
 
 
 def main(argv=None) -> int:
-    if (sys.argv[1:] if argv is None else list(argv))[:1] == ["queue"]:
-        from fabricpc.bench.cli.queue import cli as queue_cli  # has its own flags
+    given = sys.argv[1:] if argv is None else list(argv)
+    # These three have their own flags and their own --help.
+    if given[:1] == ["queue"]:
+        from fabricpc.bench.cli.queue import cli as queue_cli
 
-        return queue_cli((sys.argv[1:] if argv is None else argv)[1:], run_main=main)
+        return queue_cli(given[1:], run_main=main)
+    if given[:1] == ["run"]:
+        from fabricpc.bench.cli.explicit import run_cli
+
+        return run_cli(given[1:], run_main=main)
+    if given[:1] == ["list"]:
+        from fabricpc.bench.cli.explicit import list_cli
+
+        return list_cli(given[1:], print_ids=cmd_list)
     parser = _parser()
     args = parser.parse_args(argv)
     problems = _check_numbers(args)
