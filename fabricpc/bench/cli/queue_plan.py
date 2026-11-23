@@ -6,6 +6,7 @@ probe files into hour estimates. Nothing here trains anything.
 """
 
 import json
+import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
@@ -60,7 +61,9 @@ def _check_fields(where: str, fields: dict) -> None:
             f"{where}: 'trials' must be a whole number of at least 1, got {trials!r}"
         )
     epochs = fields.get("epochs")
-    if epochs is not None and not (_is_number(epochs) and epochs > 0):
+    if epochs is not None and not (
+        _is_number(epochs) and math.isfinite(epochs) and epochs > 0
+    ):
         raise PlanError(f"{where}: 'epochs' must be a number above 0, got {epochs!r}")
     if "zoo" in fields and not isinstance(fields["zoo"], bool):
         raise PlanError(f"{where}: 'zoo' must be true or false, got {fields['zoo']!r}")

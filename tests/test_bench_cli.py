@@ -16,7 +16,7 @@ def run_cli(*args):
 
 
 def test_list_prints_every_row_id():
-    code, out, _ = run_cli("list")
+    code, out, _ = run_cli("list", "--ids")
     assert code == 0
     for algo in ("spc", "epc", "backprop"):
         assert f"mnist-mlp-{algo}" in out
@@ -40,7 +40,7 @@ def test_unknown_row_fails_with_a_helpful_message():
 
 
 def test_list_also_names_the_families_that_run_as_one_comparison():
-    code, out, _ = run_cli("list")
+    code, out, _ = run_cli("list", "--ids")
     assert code == 0
     assert "mnist-mlp " in out or "mnist-mlp\n" in out
     assert "spc vs backprop" in out

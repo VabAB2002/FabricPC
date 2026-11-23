@@ -18,9 +18,9 @@ import json
 import subprocess
 import sys
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional
 
-from fabricpc.bench.definitions.registry import BenchmarkRow
+from fabricpc.bench.definitions.registry import OVERRIDE_FLAGS, BenchmarkRow
 from fabricpc.bench.run.runner import TrialResult, seed_for_trial
 
 _STDERR_KEPT = 4000  # characters from the end of a dead child's stderr
@@ -37,6 +37,7 @@ def child_command(
     zoo_dir=None,
     curve_batches: Optional[int] = None,
     diagnostics: bool = True,
+    overrides: Optional[Dict[str, float]] = None,
 ) -> List[str]:
     """The command that runs one trial of one row in a new process."""
     cmd = [sys.executable, "-m", "fabricpc.bench", row_id]
@@ -50,6 +51,8 @@ def child_command(
         cmd += ["--curve-batches", str(curve_batches)]
     if not diagnostics:
         cmd += ["--no-diagnostics"]
+    for name, value in (overrides or {}).items():
+        cmd += [OVERRIDE_FLAGS[name], repr(value)]
     return cmd
 
 
@@ -80,6 +83,7 @@ def run_trial_in_child(
         zoo_dir=zoo_dir,
         curve_batches=curve_batches,
         diagnostics=diagnostics,
+        overrides=dict(row.overrides),
     )
     # stdout passes straight through so training progress still shows.
     proc = subprocess.run(cmd, stderr=subprocess.PIPE, text=True)

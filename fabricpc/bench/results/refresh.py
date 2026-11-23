@@ -29,6 +29,7 @@ registry, same weighted edges and parameter count, nothing already in the
 output folder) before any file is written.
 """
 
+import dataclasses
 import json
 import os
 import shutil
@@ -44,7 +45,7 @@ from fabricpc.bench.stats.band import attach_band
 from fabricpc.bench.stats.compare import compare_family
 from fabricpc.bench.run.compute import count_compute
 from fabricpc.bench.run.manifest import _git_sha
-from fabricpc.bench.definitions.registry import COMPARISONS, ROWS
+from fabricpc.bench.definitions.registry import COMPARISONS, ROWS, with_overrides
 from fabricpc.bench.stats.summary import MIN_TRIALS, compare_rows, summarize_row
 from fabricpc.bench.results.writer import _trial_files, write_trials_csv
 
@@ -284,6 +285,19 @@ def _check_rows(row_dirs, out_root) -> None:
         )
 
 
+def _row_as_run(row_id, manifest):
+    """The registry row with the settings the old run changed, so a run with
+    --lr and the like is not judged against the defaults' expected score."""
+    row = ROWS[row_id]
+    changed = ((manifest or {}).get("row") or {}).get("overrides") or {}
+    if not changed:
+        return row
+    try:
+        return with_overrides(row, changed)
+    except ValueError:  # the row lost that setting since; keep it out of the band
+        return dataclasses.replace(row, reference=None)
+
+
 def _plan_row(src_row, src_root, out_root, *, recounter, zoo, sha):
     """Work out the refreshed trials for one row without writing anything."""
     row_id = src_row.name
@@ -333,7 +347,9 @@ def _write_row(plan, out_root, *, sha, command):
     n_ok = sum(t.get("status") == "ok" for t in new)
     band_notes = []
     if n_ok >= MIN_TRIALS and row_id in ROWS:
-        judged = attach_band(out_root, ROWS[row_id], summarize_row(out_root, row_id))
+        judged = attach_band(
+            out_root, _row_as_run(row_id, manifest), summarize_row(out_root, row_id)
+        )
         before, after = _old_band(src_row), (judged.band or {}).get("status")
         if before != after:
             band_notes.append(

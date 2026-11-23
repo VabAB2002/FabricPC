@@ -70,6 +70,8 @@ def describe_row(row: BenchmarkRow) -> dict:
         "train_config": dict(row.train_config),
         "tier": row.tier,
         "reference": asdict(row.reference) if row.reference else None,
+        "hyperparams": dict(row.hyperparams),
+        "overrides": dict(row.overrides),
     }
 
 
