@@ -55,8 +55,8 @@ def time_steps(
     rng_key,
     *,
     algorithm: str,
-    warmup_steps: int,
-    timed_steps: int,
+    warmup_steps: int = 5,
+    timed_steps: int = 30,
 ) -> Timing:
     """Time one training step, the way a benchmark should.
 
