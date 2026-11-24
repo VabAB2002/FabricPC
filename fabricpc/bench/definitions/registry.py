@@ -39,6 +39,21 @@ from fabricpc.training import metrics as training_metrics
 # The three ways we can train the same graph.
 ALGORITHMS: Tuple[str, ...] = ("spc", "epc", "backprop")
 
+# Datasets judged on test classification accuracy as their primary metric.
+CLASSIFICATION_DATASETS = frozenset(
+    {"mnist", "fashionmnist", "cifar10", "cifar100", "tinyimagenet"}
+)
+
+
+def is_classification_row(row: "BenchmarkRow") -> bool:
+    """Return True when ``row`` evaluates a supervised classification task.
+
+    Rows that supply custom ``eval_metrics`` (such as the MNIST autoencoder,
+    which shares the ``mnist`` dataset name but optimizes reconstruction MSE)
+    are excluded so only classification benchmarks are matched.
+    """
+    return row.dataset in CLASSIFICATION_DATASETS and row.eval_metrics is None
+
 # What each row's model factory returns: (params, structure).
 ModelFactory = Callable[[jax.Array], Tuple[object, object]]
 LoaderFactory = Callable[[int], Tuple[object, object]]
@@ -126,6 +141,14 @@ class BenchmarkRow:
     )
     # The settings a run changed from the defaults (empty for a normal run).
     overrides: Mapping[str, float] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        """Enforce SFR-034: classification rows must report 'accuracy' as their primary metric."""
+        if is_classification_row(self) and self.metric != "accuracy":
+            raise ValueError(
+                f"Classification row {self.id!r} must use primary metric 'accuracy', "
+                f"got {self.metric!r}"
+            )
 
     def metrics_for(self, trainer_algorithm: str):
         """What to pass as ``evaluate(..., metrics=)``: None means its
