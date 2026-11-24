@@ -168,6 +168,18 @@ def test_fused_vgg5_takes_one_training_step(algorithm):
     assert jnp.isfinite(metrics["energy"])
 
 
+@pytest.mark.parametrize("algorithm", ["pc", "backprop"])
+def test_vgg7_takes_one_training_step_under_both_algorithms(algorithm):
+    params, structure = build(7)
+    optimizer = optax.adam(1e-3)
+    step = make_train_step(structure, optimizer, algorithm=algorithm)
+    opt_state = optimizer.init(params)
+    x = jnp.zeros((2, 32, 32, 3))
+    y = jax.nn.one_hot(jnp.array([1, 7]), 10)
+    new_params, _, metrics, _ = step(params, opt_state, {"x": x, "y": y}, jax.random.PRNGKey(1)    )
+    assert jnp.isfinite(metrics["energy"])
+
+
 def test_fused_pool_rounds_an_odd_size_down_like_pcx():
     # Tiny-ImageNet crops are 56x56: 56 -> 28 -> 14 -> 7 -> 3. The last 2x2
     # pool drops the odd row and column, as pcx's MaxPool2d(2, 2) does.

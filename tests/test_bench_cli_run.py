@@ -3,11 +3,11 @@
 import dataclasses
 import json
 
-
 from fabricpc.bench.definitions import registry
 from fabricpc.bench.__main__ import main as cli_main
 from tests.test_bench_runner import fake_mnist_loaders
-
+from fabricpc.bench import __main__ as cli
+from fabricpc.bench.definitions.dataset_check import MissingDatasetError
 
 def main(argv):
     """Run the CLI in this process: the tiny test rows only exist here, so a
@@ -587,3 +587,28 @@ def test_a_run_starts_with_a_short_intro(tmp_path, monkeypatch, rng_key, capsys)
     assert lines[2].startswith("Judged on: accuracy - share of test examples")
     assert lines[3].startswith("Settings: learning_rate=0.001")
     assert lines[4].startswith("Results go to: ")
+
+def test_missing_dataset_does_not_write_results(tmp_path, monkeypatch, capsys):
+
+    def missing_dataset(dataset):
+        raise MissingDatasetError(
+            f"Dataset '{dataset}' is unavailable.\n"
+            "Download it using: tfds build mnist"
+        )
+
+    monkeypatch.setattr(cli, "check_dataset", missing_dataset)
+
+    code = cli.main([
+        "mnist-mlp-spc",
+        "--trials", "1",
+        "--out", str(tmp_path),
+        "--in-process",
+    ])
+
+    assert code != 0
+
+    error = capsys.readouterr().err
+    assert "mnist" in error
+    assert "tfds build mnist" in error
+
+    assert not (tmp_path / "mnist-mlp-spc").exists()

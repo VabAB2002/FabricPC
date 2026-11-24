@@ -33,5 +33,10 @@ def load_mnist(batch_size=64, train=True, seed=None):
     """Load MNIST dataset using TensorFlow Datasets v3.0.1 with standard splits."""
     split = "train" if train else "test"
     # Pin TFDS version to mnist:3.0.1 as requested
-    ds = tfds.load("mnist:3.0.1", split=split, as_supervised=True)
+    ds = tfds.load(
+        "mnist:3.0.1",
+        split=split,
+        as_supervised=True,
+        download=False,
+    )
     return TFDSMnistIterator(ds, batch_size=batch_size, shuffle=train, seed=seed)
