@@ -1,12 +1,16 @@
 import tensorflow_datasets as tfds
 import numpy as np
 
+
 class TFDSMnistIterator:
     """Wraps a TFDS dataset into a batch iterator with seed reproducibility and standard MNIST normalization."""
+
     def __init__(self, dataset, batch_size, shuffle=True, seed=None):
         if shuffle:
             # Pass seed into shuffle for reproducible runs across trials
-            dataset = dataset.shuffle(buffer_size=1024, seed=seed, reshuffle_each_iteration=True)
+            dataset = dataset.shuffle(
+                buffer_size=1024, seed=seed, reshuffle_each_iteration=True
+            )
         dataset = dataset.batch(batch_size, drop_remainder=False)
         self._iter = iter(tfds.as_numpy(dataset))
         self._dataset = dataset
@@ -33,5 +37,10 @@ def load_mnist(batch_size=64, train=True, seed=None):
     """Load MNIST dataset using TensorFlow Datasets v3.0.1 with standard splits."""
     split = "train" if train else "test"
     # Pin TFDS version to mnist:3.0.1 as requested
-    ds = tfds.load("mnist:3.0.1", split=split, as_supervised=True)
+    ds = tfds.load(
+        "mnist:3.0.1",
+        split=split,
+        as_supervised=True,
+        download=False,
+    )
     return TFDSMnistIterator(ds, batch_size=batch_size, shuffle=train, seed=seed)
