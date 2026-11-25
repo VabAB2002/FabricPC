@@ -7,6 +7,7 @@ list, and the exact command. A result without this file is not citable.
 import json
 import os
 import platform
+import re
 import subprocess
 import sys
 from dataclasses import asdict
@@ -59,6 +60,24 @@ def _git_sha() -> Optional[str]:
 
 def _is_full_sha(text: str) -> bool:
     return len(text) == 40 and all(c in "0123456789abcdef" for c in text)
+
+
+_TRIAL_NAME = re.compile(r"trial(\d+)\.json")
+
+
+def trial_number(path) -> Optional[int]:
+    """The N in ``trialN.json``, or None for any other name
+    (for example a Finder copy like ``trial0 copy.json``)."""
+    m = _TRIAL_NAME.fullmatch(Path(path).name)
+    return int(m.group(1)) if m else None
+
+
+def trial_files(row_dir) -> List[Path]:
+    """A row folder's ``trialN.json`` files, sorted by N. Other names are left out."""
+    found = [
+        p for p in Path(row_dir).glob("trial*.json") if trial_number(p) is not None
+    ]
+    return sorted(found, key=trial_number)
 
 
 def describe_row(row: BenchmarkRow) -> dict:

@@ -24,6 +24,7 @@ from typing import Optional, Sequence, Tuple
 
 from fabricpc.bench.stats.ci import paired_ci95
 from fabricpc.bench.definitions.registry import BenchmarkRow, Comparison
+from fabricpc.bench.run.manifest import trial_files
 from fabricpc.bench.run.runner import _TRAINER_ALGORITHM
 from fabricpc.experiments import ExperimentArm, PlannedMultiContrastResults
 from fabricpc.experiments.ab_experiment import TrialResult as ArmTrial
@@ -56,7 +57,7 @@ def arm_for_row(
 
 def _good_trials(results_dir, row_id: str):
     row_dir = Path(results_dir) / row_id
-    files = sorted(row_dir.glob("trial*.json"), key=lambda p: int(p.stem[5:]))
+    files = trial_files(row_dir)
     if not files:
         raise FileNotFoundError(f"no trial files under {row_dir}")
     trials = [json.loads(p.read_text()) for p in files]

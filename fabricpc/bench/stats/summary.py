@@ -19,7 +19,7 @@ from typing import Dict, List, Optional
 import numpy as np
 
 from fabricpc.bench.stats.ci import mean_ci95, paired_ci95
-from fabricpc.bench.run.manifest import SCHEMA_VERSION
+from fabricpc.bench.run.manifest import SCHEMA_VERSION, trial_files
 
 MIN_TRIALS = 2
 
@@ -27,7 +27,7 @@ MIN_TRIALS = 2
 def load_trials(results_dir, row_id: str) -> List[dict]:
     """All trial files for a row, sorted by trial number."""
     row_dir = Path(results_dir) / row_id
-    files = sorted(row_dir.glob("trial*.json"), key=lambda p: int(p.stem[5:]))
+    files = trial_files(row_dir)
     if not files:
         raise FileNotFoundError(f"no trial files under {row_dir}")
     return [json.loads(p.read_text()) for p in files]

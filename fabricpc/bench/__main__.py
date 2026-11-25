@@ -66,7 +66,12 @@ from pathlib import Path
 
 from fabricpc.bench.stats.band import attach_band
 from fabricpc.bench.run.isolate import run_trial_in_child
-from fabricpc.bench.run.manifest import describe_row, write_manifest
+from fabricpc.bench.run.manifest import (
+    describe_row,
+    trial_files,
+    trial_number,
+    write_manifest,
+)
 from fabricpc.bench.stats.compare import compare_family
 from fabricpc.bench.results.refresh import refresh_results
 from fabricpc.bench.definitions.metrics import explain_metric
@@ -252,8 +257,8 @@ def _clear_old_results(out, row_id, *, keep_trials):
     row_dir = Path(out) / row_id
     if not row_dir.is_dir():
         return
-    for path in row_dir.glob("trial*.json"):
-        if int(path.stem[5:]) not in keep_trials:
+    for path in trial_files(row_dir):
+        if trial_number(path) not in keep_trials:
             path.unlink()
     for name in ("summary.json", "trials.csv"):
         (row_dir / name).unlink(missing_ok=True)

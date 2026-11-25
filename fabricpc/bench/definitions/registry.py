@@ -13,8 +13,6 @@ from typing import Callable, Dict, Mapping, Optional, Tuple
 import jax
 import optax
 
-from fabricpc.bench.definitions.fashionmnist import load_fashionmnist
-from fabricpc.bench.definitions.mnist import load_mnist
 from fabricpc.bench.definitions.bpe import tinyshakespeare_bpe_transformer_family
 from fabricpc.bench.definitions.cifar100 import cifar100_vgg5_family
 from fabricpc.bench.definitions.deep import fcresnet_depth_family
@@ -54,6 +52,7 @@ def is_classification_row(row: "BenchmarkRow") -> bool:
     are excluded so only classification benchmarks are matched.
     """
     return row.dataset in CLASSIFICATION_DATASETS and row.eval_metrics is None
+
 
 # What each row's model factory returns: (params, structure).
 ModelFactory = Callable[[jax.Array], Tuple[object, object]]
@@ -268,12 +267,17 @@ def _flat_image_loaders(dataset: str, batch_size: int) -> LoaderFactory:
     """
 
     def build(seed: int):
+        # Imported here so the registry can be listed without tensorflow.
         if dataset == "mnist":
+            from fabricpc.bench.definitions.mnist import load_mnist
+
             return (
                 load_mnist(batch_size=batch_size, train=True, seed=seed),
                 load_mnist(batch_size=batch_size, train=False, seed=seed),
             )
         if dataset == "fashionmnist":
+            from fabricpc.bench.definitions.fashionmnist import load_fashionmnist
+
             return (
                 load_fashionmnist(batch_size=batch_size, train=True, seed=seed),
                 load_fashionmnist(batch_size=batch_size, train=False, seed=seed),
