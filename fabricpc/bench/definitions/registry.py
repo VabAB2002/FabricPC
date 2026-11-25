@@ -13,6 +13,7 @@ from typing import Callable, Dict, Mapping, Optional, Tuple
 import jax
 import optax
 
+from fabricpc.bench.definitions.fashionmnist import load_fashionmnist
 from fabricpc.bench.definitions.mnist import load_mnist
 from fabricpc.bench.definitions.bpe import tinyshakespeare_bpe_transformer_family
 from fabricpc.bench.definitions.cifar100 import cifar100_vgg5_family
@@ -38,6 +39,21 @@ from fabricpc.training import metrics as training_metrics
 
 # The three ways we can train the same graph.
 ALGORITHMS: Tuple[str, ...] = ("spc", "epc", "backprop")
+
+# Datasets judged on test classification accuracy as their primary metric.
+CLASSIFICATION_DATASETS = frozenset(
+    {"mnist", "fashionmnist", "cifar10", "cifar100", "tinyimagenet"}
+)
+
+
+def is_classification_row(row: "BenchmarkRow") -> bool:
+    """Return True when ``row`` evaluates a supervised classification task.
+
+    Rows that supply custom ``eval_metrics`` (such as the MNIST autoencoder,
+    which shares the ``mnist`` dataset name but optimizes reconstruction MSE)
+    are excluded so only classification benchmarks are matched.
+    """
+    return row.dataset in CLASSIFICATION_DATASETS and row.eval_metrics is None
 
 # What each row's model factory returns: (params, structure).
 ModelFactory = Callable[[jax.Array], Tuple[object, object]]
@@ -126,6 +142,14 @@ class BenchmarkRow:
     )
     # The settings a run changed from the defaults (empty for a normal run).
     overrides: Mapping[str, float] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        """Enforce SFR-034: classification rows must report 'accuracy' as their primary metric."""
+        if is_classification_row(self) and self.metric != "accuracy":
+            raise ValueError(
+                f"Classification row {self.id!r} must use primary metric 'accuracy', "
+                f"got {self.metric!r}"
+            )
 
     def metrics_for(self, trainer_algorithm: str):
         """What to pass as ``evaluate(..., metrics=)``: None means its
@@ -244,30 +268,17 @@ def _flat_image_loaders(dataset: str, batch_size: int) -> LoaderFactory:
     """
 
     def build(seed: int):
-        # Imported here so the registry can be listed without tensorflow.
-
         if dataset == "mnist":
             return (
                 load_mnist(batch_size=batch_size, train=True, seed=seed),
                 load_mnist(batch_size=batch_size, train=False, seed=seed),
             )
-        from fabricpc.utils.data import dataloader
-
-        loader_cls = {
-            "mnist": dataloader.MnistLoader,
-            "fashionmnist": dataloader.FashionMnistLoader,
-        }[dataset]
-        train = loader_cls(
-            "train",
-            batch_size=batch_size,
-            tensor_format="flat",
-            shuffle=True,
-            seed=seed,
-        )
-        test = loader_cls(
-            "test", batch_size=batch_size, tensor_format="flat", shuffle=False
-        )
-        return train, test
+        if dataset == "fashionmnist":
+            return (
+                load_fashionmnist(batch_size=batch_size, train=True, seed=seed),
+                load_fashionmnist(batch_size=batch_size, train=False, seed=seed),
+            )
+        raise ValueError(f"Unknown flat-image dataset: {dataset}")
 
     return build
 
