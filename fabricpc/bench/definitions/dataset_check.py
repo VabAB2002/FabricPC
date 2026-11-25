@@ -1,4 +1,3 @@
-
 import os
 from pathlib import Path
 
@@ -7,9 +6,12 @@ import tensorflow_datasets as tfds
 from fabricpc.utils.data import tinyimagenet as ti
 from fabricpc.bench.definitions.bpe import bpe_cache_dir
 
+
 class MissingDatasetError(Exception):
     """Raised when a required dataset is unavailable."""
+
     pass
+
 
 TFDS_DATASETS = {
     "mnist": "mnist:3.0.1",
@@ -19,6 +21,7 @@ TFDS_DATASETS = {
     "tinyshakespeare": "tiny_shakespeare",
     "tinyshakespeare-bpe": "tiny_shakespeare",
 }
+
 
 def check_dataset(dataset_name):
     # Synthetic dataset: no download required.
@@ -34,8 +37,8 @@ def check_dataset(dataset_name):
         if not path.is_file():
             command = (
                 'python -c "import os; from pathlib import Path; '
-                'from fabricpc.utils.data import tinyimagenet as ti; '
-                'ti._download(Path(os.getenv(ti._ENV_DIR) '
+                "from fabricpc.utils.data import tinyimagenet as ti; "
+                "ti._download(Path(os.getenv(ti._ENV_DIR) "
                 'or ti._DEFAULT_DIR).expanduser() / ti.ZIP_NAME)"'
             )
             raise MissingDatasetError(
