@@ -521,3 +521,69 @@ def test_without_fast_the_curve_and_diagnostics_stay_on(tmp_path, monkeypatch, r
 
     assert all(k.get("diagnostics", True) is True for k in seen)
     assert all(k.get("curve_batches") != 0 for k in seen)
+
+
+def test_smoke_and_regress_without_out_never_touch_the_results_folder(
+    tmp_path, monkeypatch
+):
+    """They start fresh runs, which delete a row's old trials, so by default
+    they get their own folders instead of the shared results/."""
+    from pathlib import Path
+
+    import fabricpc.bench.__main__ as cli
+    from fabricpc.bench.cli import regress
+
+    monkeypatch.chdir(tmp_path)
+    real = tmp_path / "results" / "mnist-mlp-spc" / "trial0.json"
+    real.parent.mkdir(parents=True)
+    real.write_text("{}")
+    outs = []
+    monkeypatch.setattr(
+        cli, "_run_row", lambda row, out, **kw: (outs.append(out), (True, None))[1]
+    )
+    monkeypatch.setattr(regress, "run_regress", lambda out, *a: outs.append(out) or 0)
+
+    main(["smoke"])
+    main(["regress"])
+    main(["smoke", "--out", "mine"])
+
+    assert outs == [
+        str(Path("results") / "smoke"),
+        str(Path("results") / "regress"),
+        "mine",
+    ]
+    assert real.exists()
+
+
+def test_a_run_ends_with_one_headline_result_line(
+    tmp_path, monkeypatch, rng_key, capsys
+):
+    register_tiny_row(monkeypatch, rng_key)
+    main(_tiny_args(tmp_path))
+    out = capsys.readouterr().out
+    headline = [line for line in out.splitlines() if line.startswith("RESULT ")]
+    assert len(headline) == 1
+    assert headline[0].startswith("RESULT tiny-mlp-spc: accuracy ")
+    assert "over 2 seeds" in headline[0]
+    assert "accuracy: share of test examples" in out
+
+
+def test_every_row_metric_has_a_plain_meaning():
+    from fabricpc.bench.definitions.metrics import explain_metric
+
+    for row in registry.ROWS.values():
+        assert explain_metric(row.metric), row.metric
+    assert "20% of the bits flipped" in explain_metric("bit_accuracy_p20")
+
+
+def test_a_run_starts_with_a_short_intro(tmp_path, monkeypatch, rng_key, capsys):
+    register_tiny_row(monkeypatch, rng_key)
+    main(_tiny_args(tmp_path))
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[0].startswith("Benchmark: tiny-mlp-spc  (dataset tiny,")
+    assert lines[1] == (
+        "Plan: 2 seeds x 1 epochs; each seed trains, then is scored on the test set."
+    )
+    assert lines[2].startswith("Judged on: accuracy - share of test examples")
+    assert lines[3].startswith("Settings: learning_rate=0.001")
+    assert lines[4].startswith("Results go to: ")

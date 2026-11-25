@@ -6,7 +6,7 @@ import math
 import os
 import time
 import traceback
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -154,6 +154,8 @@ class TrialResult:
     compute: Dict[str, float] = field(default_factory=dict)
     achieved_tflops: float = 0.0  # flops per update / measured step time
     checkpoint: Optional[str] = None  # zoo path of the trained params
+    # Settings this run changed from the row's defaults (empty normally).
+    overrides: Dict[str, float] = field(default_factory=dict)
     status: str = "ok"
     error: Optional[str] = None
     schema_version: int = SCHEMA_VERSION
@@ -365,6 +367,7 @@ def run_trial(
             error=traceback.format_exc(),
         )
 
+    result = replace(result, overrides=dict(row.overrides))
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(asdict(result), indent=2))
     return result

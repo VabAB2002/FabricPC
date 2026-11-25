@@ -7,18 +7,20 @@ A **row** is one dataset, one model and one training algorithm, named `dataset-m
 ## Quick start
 
 ```bash
-python -m fabricpc.bench list                          # every row and family
+python -m fabricpc.bench list                          # every benchmark, with its metric
+python -m fabricpc.bench run --dataset mnist --architecture mlp --method spc  # one row, by name
+python -m fabricpc.bench run --dataset mnist --architecture mlp              # all methods, then compare
 python -m fabricpc.bench mnist-mlp-spc --dry-run       # a row's settings, no training
 python -m fabricpc.bench mnist-mlp-spc --trials 5      # one row, 5 seeds
 python -m fabricpc.bench mnist-mlp --trials 5          # a family: all three rows, then compare
 python -m fabricpc.bench compare mnist-mlp             # compare results already on disk
 python -m fabricpc.bench validate results              # check a results folder is whole
 python -m fabricpc.bench report results --out report.md  # one readable page for a results folder
-python -m fabricpc.bench smoke                         # the short run CI uses
+python -m fabricpc.bench smoke                         # the short run CI uses (into results/smoke)
 python -m fabricpc.bench regress --out regress-results # CI's regression checks
 ```
 
-Results go under `--out` (default `results/`). Useful flags:
+Results go under `--out` (default `results/`; `smoke` and `regress` default to `results/smoke/` and `results/regress/` so they never wipe a real run). Useful flags:
 
 | Flag | Effect |
 |---|---|
@@ -64,6 +66,16 @@ Trial `i` uses seed `i·1000`, the same rule as `PlannedMultiContrastExperiment`
 `compare` loads the finished trials into the framework's own `PlannedMultiContrastResults` and uses its `contrast_results()`: a paired t-test and Cohen's d on the per-seed differences. Each family tests three contrasts: sPC vs backprop, ePC vs backprop, and ePC vs sPC. Rows are paired on the seeds that all of them ran successfully; seeds only some rows have are listed as `unpaired_seeds`, and fewer than two shared seeds is an error.
 
 Every mean in `summary.json` (metrics and timing) has `ci95_low` and `ci95_high` beside `mean`, `std`, `se` and `n`: a 95% confidence interval using the Student t value for n-1 degrees of freedom (`fabricpc.bench.ci`). With few seeds t is much bigger than 1.96: 2.78 for five seeds, 4.30 for three, 12.7 for two, so a two-seed interval is very wide on purpose. Each contrast in a compare file also gets `ci95_low` and `ci95_high` for its mean difference, worked out from the same per-seed differences as the paired t-test; the framework's contrast has the SE but no interval. Zero lies outside that interval exactly when p < 0.05. The intervals are not corrected for testing three contrasts at once. The CLI prints them as `95% CI [low, high]`.
+
+## Changing a row's settings
+
+Each row stores its tuned settings (learning rate, weight decay, batch size, and for sPC the settling step size and step count) as the benchmark's defaults. `--dry-run` shows them under `hyperparams`. To try other values for one run, give them as flags:
+
+```bash
+python -m fabricpc.bench run --dataset mnist --architecture mlp --method spc --lr 0.01 --infer-steps 10 --out results-lr01
+```
+
+The flags are `--lr`, `--weight-decay`, `--batch-size`, `--eta-infer` and `--infer-steps`. What changed is written to the manifest and every trial file (`overrides`). A run with changed settings gets no PASS/FAIL, because the expected score is for the defaults. A run will not write into a folder that holds the same row run with other settings, so use a separate `--out`. So far only the MLP rows can be changed this way; the others say so.
 
 ## The pass/fail band
 

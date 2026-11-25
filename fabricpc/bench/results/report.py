@@ -27,6 +27,7 @@ import html
 import json
 import re
 import statistics
+from fabricpc.bench.run.manifest import SCHEMA_VERSION
 from pathlib import Path
 
 ROW_FILES = ("summary.json", "manifest.json", "trials.csv")
@@ -496,7 +497,19 @@ def _render_md(blocks) -> str:
 def _inline_html(text: str) -> str:
     text = html.escape(str(text))
     text = re.sub(r"`([^`]+)`", r"<code>\1</code>", text)
-    return re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r'<a href="\2">\1</a>', text)
+    return re.sub(r"\[([^\]]+)\]\(([^)]+)\)", _link, text)
+
+
+def _link(m) -> str:
+    """A Markdown link as <a>, but only for http(s) or relative URLs, so a
+    result file cannot slip in a ``javascript:`` link."""
+    label, url = m.group(1), m.group(2)
+    # Browsers ignore spaces, tabs and newlines inside a scheme ("java\tscript:").
+    plain = re.sub(r"[\x00-\x20]", "", html.unescape(url))
+    scheme = re.match(r"([A-Za-z][A-Za-z0-9+.-]*):", plain)
+    if scheme and scheme.group(1).lower() not in ("http", "https"):
+        return label
+    return f'<a href="{url}">{label}</a>'
 
 
 _CSS = (
@@ -535,6 +548,48 @@ def _render_html(blocks) -> str:
         f"<style>{_CSS}</style></head><body>\n" + "\n".join(out) + "\n</body></html>\n"
     )
 
+def build_json_report(root) -> dict:
+    """Build a structured JSON report dictionary for ``root``."""
+    root = Path(root)
+    today = datetime.date.today().isoformat()
+    if not root.is_dir():
+        return {
+            "schema_version": SCHEMA_VERSION,
+            "results_root": str(root),
+            "created_date": today,
+            "error": f"Results root not found: {root}",
+            "families": [],
+        }
+
+    families, others = [], []
+    _scan(root, root, families, others)
+    family_entries = []
+    for folder, row_dirs in families:
+        notes = []
+        contrasts = load_compares(folder, notes)
+        metric = next((c.get("metric") for c in contrasts if c.get("metric")), None)
+        rows = {d.name: load_row(d, metric) for d in row_dirs}
+        title = folder.relative_to(root).as_posix() if folder != root else folder.name
+        family_entries.append(
+            {
+                "family": title,
+                "rows": list(rows.values()),
+                "comparisons": contrasts,
+                "notes": notes,
+            }
+        )
+
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "results_root": str(root),
+        "created_date": today,
+        "families": family_entries,
+        "skipped": others,
+    }
+
+
+def _render_json(root) -> str:
+    return json.dumps(build_json_report(root), indent=2) + "\n"
 
 def render(blocks, fmt: str = "md") -> str:
     return _render_html(blocks) if fmt == "html" else _render_md(blocks)
@@ -543,8 +598,13 @@ def render(blocks, fmt: str = "md") -> str:
 def run_report(root, out=None, fmt=None) -> str:
     """Build the page and write it to ``out`` (or just return it)."""
     if fmt is None:
-        fmt = "html" if out and str(out).endswith((".html", ".htm")) else "md"
-    text = render(build_report(root), fmt)
+        if out and str(out).endswith(".json"):
+            fmt = "json"
+        elif out and str(out).endswith((".html", ".htm")):
+            fmt = "html"
+        else:
+            fmt = "md"
+    text = _render_json(root) if fmt == "json" else render(build_report(root), fmt)
     if out:
         Path(out).write_text(text)
     return text

@@ -58,6 +58,13 @@ def check_band(row: BenchmarkRow, summary: RowSummary) -> BandVerdict:
         expected=ref.value,
         source=ref.source,
     )
+    if row.overrides:
+        changed = ", ".join(f"{k}={v:g}" for k, v in row.overrides.items())
+        return replace(
+            base,
+            reason=f"settings changed from the benchmark's defaults ({changed}); "
+            "the expected score is for the defaults",
+        )
     full_epochs = float(row.train_config["num_epochs"])
     if summary.num_epochs != full_epochs:
         return replace(

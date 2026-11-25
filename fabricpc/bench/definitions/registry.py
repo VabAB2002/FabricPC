@@ -5,7 +5,9 @@ family (same dataset and model) share a graph so the algorithms can be
 compared on equal footing. Row ids look like ``mnist-mlp-spc``.
 """
 
-from dataclasses import dataclass
+import dataclasses
+import functools
+from dataclasses import dataclass, field
 from typing import Callable, Dict, Mapping, Optional, Tuple
 
 import jax
@@ -35,6 +37,22 @@ from fabricpc.training import metrics as training_metrics
 
 # The three ways we can train the same graph.
 ALGORITHMS: Tuple[str, ...] = ("spc", "epc", "backprop")
+
+# Datasets judged on test classification accuracy as their primary metric.
+CLASSIFICATION_DATASETS = frozenset(
+    {"mnist", "fashionmnist", "cifar10", "cifar100", "tinyimagenet"}
+)
+
+
+def is_classification_row(row: "BenchmarkRow") -> bool:
+    """Return True when ``row`` evaluates a supervised classification task.
+
+    Rows that supply custom ``eval_metrics`` (such as the MNIST autoencoder,
+    which shares the ``mnist`` dataset name but optimizes reconstruction MSE)
+    are excluded so only classification benchmarks are matched.
+    """
+    return row.dataset in CLASSIFICATION_DATASETS and row.eval_metrics is None
+
 
 # What each row's model factory returns: (params, structure).
 ModelFactory = Callable[[jax.Array], Tuple[object, object]]
@@ -114,6 +132,23 @@ class BenchmarkRow:
     # not classifiers. PC rows also get the settled energy.
     eval_metrics: Optional[Mapping[str, training_metrics.EvalMetric]] = None
     depth: Optional[int] = None  # residual blocks, for rows swept over depth
+    # The row's tuned settings (learning rate, batch size, PC settling, ...),
+    # stored here as the benchmark's defaults. ``rebuild`` makes the same row
+    # from a full set of them; rows without it cannot be overridden yet.
+    hyperparams: Mapping[str, float] = field(default_factory=dict)
+    rebuild: Optional[Callable[[Mapping[str, float]], "BenchmarkRow"]] = field(
+        default=None, compare=False, repr=False
+    )
+    # The settings a run changed from the defaults (empty for a normal run).
+    overrides: Mapping[str, float] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        """Enforce SFR-034: classification rows must report 'accuracy' as their primary metric."""
+        if is_classification_row(self) and self.metric != "accuracy":
+            raise ValueError(
+                f"Classification row {self.id!r} must use primary metric 'accuracy', "
+                f"got {self.metric!r}"
+            )
 
     def metrics_for(self, trainer_algorithm: str):
         """What to pass as ``evaluate(..., metrics=)``: None means its
@@ -127,6 +162,52 @@ class BenchmarkRow:
         return chosen
 
 
+# Settings that are whole numbers; the rest are floats.
+_WHOLE_NUMBER_SETTINGS = {"batch_size", "infer_steps"}
+
+# Each setting that can be changed from the command line, and its flag.
+OVERRIDE_FLAGS = {
+    "learning_rate": "--lr",
+    "weight_decay": "--weight-decay",
+    "batch_size": "--batch-size",
+    "eta_infer": "--eta-infer",
+    "infer_steps": "--infer-steps",
+}
+
+
+def with_overrides(row: BenchmarkRow, overrides: Mapping[str, float]) -> BenchmarkRow:
+    """The same row with some settings changed from its defaults.
+
+    Raises ValueError, naming the row's own settings, for a setting the row
+    does not have, or when the row cannot be rebuilt yet.
+    """
+    # A value equal to the default is no change (and keeps the PASS/FAIL).
+    overrides = {
+        k: v
+        for k, v in overrides.items()
+        if k not in row.hyperparams or row.hyperparams[k] != v
+    }
+    if not overrides:
+        return row
+    if row.rebuild is None:
+        raise ValueError(
+            f"{row.id} cannot change its settings from the command line yet "
+            "(only the MLP rows can so far)"
+        )
+    unknown = sorted(set(overrides) - set(row.hyperparams))
+    if unknown:
+        have = ", ".join(f"{k}={v:g}" for k, v in row.hyperparams.items())
+        raise ValueError(
+            f"{row.id} has no setting {', '.join(unknown)}; its settings: {have}"
+        )
+    clean = {
+        k: int(v) if k in _WHOLE_NUMBER_SETTINGS else float(v)
+        for k, v in overrides.items()
+    }
+    rebuilt = row.rebuild({**row.hyperparams, **clean})
+    return dataclasses.replace(rebuilt, overrides=clean)
+
+
 def _solver_for(algorithm: str):
     """Pick the inference solver for an algorithm.
 
@@ -138,8 +219,9 @@ def _solver_for(algorithm: str):
     return InferenceSGD(eta_infer=0.05, infer_steps=20)
 
 
-def _mnist_mlp_factory(algorithm: str) -> ModelFactory:
+def _mnist_mlp_factory(algorithm: str, solver=None) -> ModelFactory:
     """Build the MNIST MLP from the mnist demo: 784 -> 256 -> 64 -> 10."""
+    solver = solver if solver is not None else _solver_for(algorithm)
 
     def build(rng_key: jax.Array):
         pixels = IdentityNode(shape=(784,), name="pixels")
@@ -170,7 +252,7 @@ def _mnist_mlp_factory(algorithm: str) -> ModelFactory:
                 Edge(source=hidden2, target=output.slot("in")),
             ],
             task_map=TaskMap(x=pixels, y=output),
-            inference=_solver_for(algorithm),
+            inference=solver,
         )
         params = initialize_params(structure, rng_key)
         return params, structure
@@ -193,23 +275,14 @@ def _flat_image_loaders(dataset: str, batch_size: int) -> LoaderFactory:
                 load_mnist(batch_size=batch_size, train=True, seed=seed),
                 load_mnist(batch_size=batch_size, train=False, seed=seed),
             )
-        from fabricpc.utils.data import dataloader
+        if dataset == "fashionmnist":
+            from fabricpc.bench.definitions.fashionmnist import load_fashionmnist
 
-        loader_cls = {
-            "mnist": dataloader.MnistLoader,
-            "fashionmnist": dataloader.FashionMnistLoader,
-        }[dataset]
-        train = loader_cls(
-            "train",
-            batch_size=batch_size,
-            tensor_format="flat",
-            shuffle=True,
-            seed=seed,
-        )
-        test = loader_cls(
-            "test", batch_size=batch_size, tensor_format="flat", shuffle=False
-        )
-        return train, test
+            return (
+                load_fashionmnist(batch_size=batch_size, train=True, seed=seed),
+                load_fashionmnist(batch_size=batch_size, train=False, seed=seed),
+            )
+        raise ValueError(f"Unknown flat-image dataset: {dataset}")
 
     return build
 
@@ -223,29 +296,53 @@ _MLP_STAGE1_ACCURACY = {
 }
 
 
+# The MLP rows' tuned settings. sPC also settles its latents: eta_infer is
+# the settling step size and infer_steps how many steps it takes. ePC and
+# backprop do not use those two.
+_MLP_HYPERPARAMS = {"learning_rate": 0.001, "weight_decay": 0.1, "batch_size": 200}
+_SPC_SETTLING = {"eta_infer": 0.05, "infer_steps": 20}
+
+
+def _mlp_defaults(algo: str) -> Dict[str, float]:
+    return {**_MLP_HYPERPARAMS, **(_SPC_SETTLING if algo == "spc" else {})}
+
+
+def _mlp_row(dataset: str, algo: str, hp: Mapping[str, float]) -> BenchmarkRow:
+    """One MLP row built from a full set of settings."""
+    solver = None
+    if algo == "spc":
+        solver = InferenceSGD(
+            eta_infer=float(hp["eta_infer"]), infer_steps=int(hp["infer_steps"])
+        )
+    lr, wd, batch_size = hp["learning_rate"], hp["weight_decay"], int(hp["batch_size"])
+    row_id = f"{dataset}-mlp-{algo}"
+    return BenchmarkRow(
+        id=row_id,
+        dataset=dataset,
+        model="mlp",
+        algorithm=algo,
+        model_factory=_mnist_mlp_factory(algo, solver),
+        loader_factory=_flat_image_loaders(dataset, batch_size),
+        optimizer_factory=lambda total_steps: optax.adamw(lr, weight_decay=wd),
+        train_config={"num_epochs": 20},
+        batch_size=batch_size,
+        rate_control=_safety_net(algo),
+        reference=Reference(
+            metric="accuracy",
+            value=_MLP_STAGE1_ACCURACY[dataset][algo],
+            source=_MLP_STAGE1_SOURCE,
+        ),
+        hyperparams=dict(hp),
+        rebuild=functools.partial(_mlp_row, dataset, algo),
+    )
+
+
 def _mlp_family(dataset: str) -> Dict[str, BenchmarkRow]:
     """The 784-256-64-10 MLP on a flattened-image dataset, three algorithms."""
     rows = {}
-    batch_size = 200
     for algo in ALGORITHMS:
-        row_id = f"{dataset}-mlp-{algo}"
-        rows[row_id] = BenchmarkRow(
-            id=row_id,
-            dataset=dataset,
-            model="mlp",
-            algorithm=algo,
-            model_factory=_mnist_mlp_factory(algo),
-            loader_factory=_flat_image_loaders(dataset, batch_size),
-            optimizer_factory=lambda total_steps: optax.adamw(0.001, weight_decay=0.1),
-            train_config={"num_epochs": 20},
-            batch_size=batch_size,
-            rate_control=_safety_net(algo),
-            reference=Reference(
-                metric="accuracy",
-                value=_MLP_STAGE1_ACCURACY[dataset][algo],
-                source=_MLP_STAGE1_SOURCE,
-            ),
-        )
+        row = _mlp_row(dataset, algo, _mlp_defaults(algo))
+        rows[row.id] = row
     return rows
 
 
