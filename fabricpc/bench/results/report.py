@@ -497,7 +497,19 @@ def _render_md(blocks) -> str:
 def _inline_html(text: str) -> str:
     text = html.escape(str(text))
     text = re.sub(r"`([^`]+)`", r"<code>\1</code>", text)
-    return re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r'<a href="\2">\1</a>', text)
+    return re.sub(r"\[([^\]]+)\]\(([^)]+)\)", _link, text)
+
+
+def _link(m) -> str:
+    """A Markdown link as <a>, but only for http(s) or relative URLs, so a
+    result file cannot slip in a ``javascript:`` link."""
+    label, url = m.group(1), m.group(2)
+    # Browsers ignore spaces, tabs and newlines inside a scheme ("java\tscript:").
+    plain = re.sub(r"[\x00-\x20]", "", html.unescape(url))
+    scheme = re.match(r"([A-Za-z][A-Za-z0-9+.-]*):", plain)
+    if scheme and scheme.group(1).lower() not in ("http", "https"):
+        return label
+    return f'<a href="{url}">{label}</a>'
 
 
 _CSS = (
