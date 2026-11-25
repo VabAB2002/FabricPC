@@ -79,10 +79,6 @@ from fabricpc.bench.definitions.registry import (
 from fabricpc.bench.run.runner import finished_trial, run_trial, seed_for_trial
 from fabricpc.bench.stats.summary import MIN_TRIALS, compare_rows, summarize_row
 from fabricpc.bench.results.writer import validate, write_trials_csv
-from fabricpc.bench.definitions.dataset_check import (
-    check_dataset,
-    MissingDatasetError,
-)
 
 SMOKE_ROW = "mnist-mlp-spc"
 SMOKE_FLOOR = 0.85  # half an epoch of MNIST lands well above this
@@ -279,14 +275,6 @@ def _run_row(
     extra = {} if curve_batches is None else {"curve_batches": curve_batches}
     if not diagnostics:
         extra["diagnostics"] = False
-
-    try:
-        check_dataset(row.dataset)
-    except MissingDatasetError as error:
-        print(f"ERROR: {error}", file=sys.stderr)
-        print("Benchmark aborted. No results written.", file=sys.stderr)
-        return 1, None
-
     _clear_old_results(out, row.id, keep_trials=range(n_trials) if resume else ())
     write_manifest(
         out,
@@ -578,19 +566,10 @@ def cmd_family(args, command) -> int:
     if args.dry_run:
         print(json.dumps([describe_row(r) for r in rows], indent=2))
         return 0
-
-    try:
-        for dataset in {row.dataset for row in rows}:
-            check_dataset(dataset)
-    except MissingDatasetError as error:
-        print(f"ERROR: {error}", file=sys.stderr)
-        print("Benchmark family aborted. No results written.", file=sys.stderr)
-        return 1
-
     codes = [_run_one_row(row, args, command) for row in rows]
     try:
         _compare_family(family.id, args.out, args.metric or family.metric)
-    except (ValueError, FileNotFoundError) as e:
+    except ValueError as e:  # too few good trials to pair
         print(f"{family.id}: no comparison: {e}", file=sys.stderr)
         return 1
     return max(codes)

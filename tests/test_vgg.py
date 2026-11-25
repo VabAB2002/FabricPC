@@ -176,7 +176,9 @@ def test_vgg7_takes_one_training_step_under_both_algorithms(algorithm):
     opt_state = optimizer.init(params)
     x = jnp.zeros((2, 32, 32, 3))
     y = jax.nn.one_hot(jnp.array([1, 7]), 10)
-    new_params, _, metrics, _ = step(params, opt_state, {"x": x, "y": y}, jax.random.PRNGKey(1)    )
+    new_params, _, metrics, _ = step(
+        params, opt_state, {"x": x, "y": y}, jax.random.PRNGKey(1)
+    )
     assert jnp.isfinite(metrics["energy"])
 
 
