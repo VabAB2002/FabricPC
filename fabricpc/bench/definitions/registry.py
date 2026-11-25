@@ -13,6 +13,7 @@ from typing import Callable, Dict, Mapping, Optional, Tuple
 import jax
 import optax
 
+from fabricpc.bench.definitions.fashionmnist import load_fashionmnist
 from fabricpc.bench.definitions.mnist import load_mnist
 from fabricpc.bench.definitions.bpe import tinyshakespeare_bpe_transformer_family
 from fabricpc.bench.definitions.cifar100 import cifar100_vgg5_family
@@ -267,30 +268,17 @@ def _flat_image_loaders(dataset: str, batch_size: int) -> LoaderFactory:
     """
 
     def build(seed: int):
-        # Imported here so the registry can be listed without tensorflow.
-
         if dataset == "mnist":
             return (
                 load_mnist(batch_size=batch_size, train=True, seed=seed),
                 load_mnist(batch_size=batch_size, train=False, seed=seed),
             )
-        from fabricpc.utils.data import dataloader
-
-        loader_cls = {
-            "mnist": dataloader.MnistLoader,
-            "fashionmnist": dataloader.FashionMnistLoader,
-        }[dataset]
-        train = loader_cls(
-            "train",
-            batch_size=batch_size,
-            tensor_format="flat",
-            shuffle=True,
-            seed=seed,
-        )
-        test = loader_cls(
-            "test", batch_size=batch_size, tensor_format="flat", shuffle=False
-        )
-        return train, test
+        if dataset == "fashionmnist":
+            return (
+                load_fashionmnist(batch_size=batch_size, train=True, seed=seed),
+                load_fashionmnist(batch_size=batch_size, train=False, seed=seed),
+            )
+        raise ValueError(f"Unknown flat-image dataset: {dataset}")
 
     return build
 
