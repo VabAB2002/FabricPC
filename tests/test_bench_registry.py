@@ -1,9 +1,18 @@
-"""Tests for the benchmark registry: which rows exist and how they are named."""
+"""Tests for the benchmark registry: which rows exist and how they are named.
+
+SFR-012 (build the 3-layer MLP): the MLP's nodes and edges are covered by
+test_model_factory_builds_a_graph_for_each_algorithm and
+test_fashionmnist_mlp_rows_reuse_the_mnist_graph; its layer widths and weights
+are covered by test_the_mlp_is_784_256_64_10 (TC-U16-1).
+"""
 
 import jax
 import pytest
 
 from fabricpc.bench.definitions.registry import ROWS, ALGORITHMS, BenchmarkRow
+
+# three weight matrices, 784x256, 256x64, 64x10.
+MLP_WEIGHTS = 784 * 256 + 256 * 64 + 64 * 10
 
 
 def test_mnist_mlp_rows_are_registered():
@@ -38,6 +47,21 @@ def test_model_factory_builds_a_graph_for_each_algorithm(rng_key):
         assert len(structure.nodes) == 4
         assert len(structure.edges) == 3
         assert sum(p.size for p in jax.tree_util.tree_leaves(params)) > 0
+
+
+# --- TC-U16-1: the 3-layer MLP (SFR-012) ------------------------------------
+@pytest.mark.parametrize("algo", ["spc", "epc", "backprop"])
+def test_the_mlp_is_784_256_64_10(rng_key, algo):
+    params, structure = ROWS[f"mnist-mlp-{algo}"].model_factory(rng_key)
+    names = list(structure.node_order)
+    shapes = [tuple(structure.nodes[n].node_info.shape) for n in names]
+    assert names == ["pixels", "hidden1", "hidden2", "class"]
+    assert shapes == [(784,), (256,), (64,), (10,)]  # the input and three layers
+    assert structure.task_map == {"x": "pixels", "y": "class"}
+    assert len(structure.edges) == 3
+    # one weight matrix per edge
+    weights = [w for node in params.nodes.values() for w in node.weights.values()]
+    assert sum(w.size for w in weights) == MLP_WEIGHTS
 
 
 def test_cifar10_vgg5_rows_are_registered():
