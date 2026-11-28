@@ -3,6 +3,12 @@
 Suite TS-U07 (Run Manifest). SFR-025 (record FabricPC, suite, and Git commit
 versions) is covered by the version and Git tests below; they also cover the
 command and seed parts of TC-U07-1 (SFR-023, SFR-024).
+
+SFR-023 (record the exact command) is covered by
+test_manifest_records_versions_hardware_and_the_command and
+test_manifest_has_command_seeds_versions_and_git_commit (TC-U07-1), which check
+the command string, and by test_running_a_row_writes_one_file_per_trial in the
+runner tests, which checks that a real run records it.
 """
 
 import json

@@ -1,7 +1,7 @@
 """manifest.json: everything someone needs to reproduce a run.
 
-Versions, hardware, the flags JAX was given, the row's settings, the seed
-list, and the exact command. A result without this file is not citable.
+Versions, hardware, the flags JAX was given, the row's settings and its
+solver, the seed list, and the exact command. A result without this file is not citable.
 """
 
 import json
@@ -97,11 +97,39 @@ def describe_row(row: BenchmarkRow) -> dict:
     }
 
 
+def _plain(value):
+    """A JSON-safe copy of a settings value."""
+    if isinstance(value, (bool, int, float, str)) or value is None:
+        return value
+    if hasattr(value, "item"):  # numpy and jax scalars
+        return value.item()
+    if isinstance(value, dict):
+        return {str(k): _plain(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_plain(v) for v in value]
+    return repr(value)
+
+
+def _solver_settings(row: BenchmarkRow) -> Optional[dict]:
+    """The settling solver the row's graph runs with: its type and settings.
+
+    Read from the built graph, so every row is covered. None if the graph cannot be built;
+    a manifest does not stop a run.
+    """
+    try:
+        _, structure = row.model_factory(jax.random.PRNGKey(0))
+        solver = structure.config["inference"]
+        return {"type": type(solver).__name__, "settings": _plain(dict(solver.config))}
+    except Exception:
+        return None
+
+
 def build_manifest(row: BenchmarkRow, seeds: List[int], command: List[str]) -> dict:
     return {
         "schema_version": SCHEMA_VERSION,
         "created_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "row": describe_row(row),
+        "solver": _solver_settings(row),
         "seeds": list(seeds),
         "command": " ".join(command),
         "git_sha": _git_sha(),
